@@ -66,3 +66,9 @@ export const dayTone = (key: string): 'sun' | 'sat' | undefined => {
   const day = dateFromKey(key).getDay();
   return day === 0 ? 'sun' : day === 6 ? 'sat' : undefined;
 };
+
+export function answerError(votes: readonly (Vote | null)[], name: string): string {
+  if (votes.some(vote => vote === null)) return 'すべての候補日に○△×を選んでください。';
+  if (!name.trim()) return 'お名前を入力してください。';
+  return '';
+}

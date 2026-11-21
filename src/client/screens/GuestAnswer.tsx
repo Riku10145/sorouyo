@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { dateLabel, dayTone, shortDate, weekday, type Vote } from '../../shared/model';
+import { answerError, dateLabel, dayTone, shortDate, weekday, type Vote } from '../../shared/model';
 import { findPoll, groupName, type Poll } from '../../shared/sample';
 import { Brand, GroupDot, Icon, InviteHero, VOTE_WORD, VoteMark, VotePicker } from '../design/ui';
 import { Envelope } from '../design/art';
@@ -41,13 +41,13 @@ function GuestForm({ poll }: { poll: Poll }) {
   const [votes, setVotes] = useState<(Vote | null)[]>(() => poll.candidates.map(() => null));
   const [name, setName] = useState('');
   const [comment, setComment] = useState('');
-  const [error, setError] = useState('');
+  const [tried, setTried] = useState(false);
+  const error = tried ? answerError(votes, name) : '';
   const [sent, setSent] = useState(false);
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (votes.some(vote => vote === null)) return setError('すべての候補日に○△×を選んでください。');
-    if (!name.trim()) return setError('お名前を入力してください。');
-    setError('');
+    setTried(true);
+    if (answerError(votes, name)) return;
     setSent(true);
     window.scrollTo({ top: 0 });
   };

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { answered, bestCandidate, dayTone, shortDate, tally, weekday } from './model';
+import { answerError, answered, bestCandidate, dayTone, shortDate, tally, weekday } from './model';
 import { findPoll, SAMPLE_EVENTS, SAMPLE_SELECTED_DATE } from './sample';
 
 test('Paperと同じ餃子の会のサンプルで回答数と最多の候補日を求める', () => {
@@ -25,4 +25,10 @@ test('候補日の短い表記と曜日・休日の色を返す', () => {
   expect(dayTone('2026-11-21')).toBe('sat');
   expect(dayTone('2026-11-26')).toBeUndefined();
   expect(SAMPLE_EVENTS.filter(event => event.date === SAMPLE_SELECTED_DATE).map(event => event.title)).toEqual(['おうちランチ', '映画デート']);
+});
+
+test('回答のエラーは未選択の候補日、名前の順に示し、入力がそろえば消える', () => {
+  expect(answerError(['yes', null], 'ゆい')).toBe('すべての候補日に○△×を選んでください。');
+  expect(answerError(['yes', 'no'], '  ')).toBe('お名前を入力してください。');
+  expect(answerError(['yes', 'no'], 'ゆい')).toBe('');
 });
