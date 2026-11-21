@@ -22,9 +22,9 @@ export function PollStatus({ poll, selectedDate }: { poll: Poll; selectedDate: s
   const confirmedBanner = confirmed !== null && <p className="confirmed" role="status">
     <Icon name="check" size={18} />{dateLabel(poll.candidates[confirmed]!.date)} {poll.candidates[confirmed]!.time}〜に決まりました。
   </p>;
-  const progress = <p className="progress"><span className="bars" aria-hidden="true">{poll.answers.map((answer, i) => <i key={i} className={answered(answer) ? 'on' : ''} />)}</span>{poll.answers.length}人中{respondents}人が回答</p>;
+  const progress = <p className="progress"><span className="bars" aria-hidden="true">{poll.answers.map((_, i) => <i key={i} className={i < respondents ? 'on' : ''} />)}</span>{poll.answers.length}人中{respondents}人が回答</p>;
 
-  return <AppShell active="polls" selectedDate={selectedDate}>
+  return <AppShell active="polls" selectedDate={selectedDate} subpage>
     <div className="m-only m-back"><a className="text-btn" href="/"><Icon name="chevronLeft" size={20} />日程調整</a></div>
     <div className="desk-only poll-toolbar">
       <p className="page-label">日程調整</p>

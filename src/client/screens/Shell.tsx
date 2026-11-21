@@ -18,11 +18,11 @@ function NavItems({ active, className }: { active: Tab; className: string }) {
     : <button key={item.id} type="button" className={className} onClick={() => notReady(item.label)}><Icon name={item.icon} size={22} /><span>{item.label}</span></button>)}</>;
 }
 
-export function AppShell({ active, selectedDate, visible, onToggleGroup, children }: {
-  active: Tab; selectedDate: string; visible?: ReadonlySet<GroupId>; onToggleGroup?: (group: GroupId) => void; children: ReactNode;
+export function AppShell({ active, selectedDate, visible, onToggleGroup, subpage, children }: {
+  active: Tab; selectedDate: string; visible?: ReadonlySet<GroupId>; onToggleGroup?: (group: GroupId) => void; subpage?: boolean; children: ReactNode;
 }) {
   const dayEvents = SAMPLE_EVENTS.filter(event => event.date === selectedDate && (!visible || visible.has(event.group)));
-  return <div className="app-shell">
+  return <div className={subpage ? 'app-shell subpage' : 'app-shell'}>
     <aside className="sidebar" aria-label="メニュー">
       <Brand size={32} />
       <nav className="side-nav" aria-label="メイン"><NavItems active={active} className="side-link" /></nav>
@@ -39,6 +39,6 @@ export function AppShell({ active, selectedDate, visible, onToggleGroup, childre
       <button type="button" className="side-settings" onClick={() => notReady('設定')}><Icon name="settings" size={18} />設定<Icon name="chevronRight" size={16} /></button>
     </aside>
     <div className="app-main">{children}</div>
-    <nav className="bottom-nav" aria-label="メイン"><NavItems active={active} className="bottom-link" /></nav>
+    {!subpage && <nav className="bottom-nav" aria-label="メイン"><NavItems active={active} className="bottom-link" /></nav>}
   </div>;
 }
