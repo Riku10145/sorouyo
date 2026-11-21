@@ -1,6 +1,6 @@
 # そろうよ
 
-日程調整サービスのWeb基盤です。React + TypeScript + Vite と Cloudflare Workers Static Assets + Hono を使用します。DB・認証・課金はまだ接続していません。
+日程調整サービスのWeb基盤です。React + TypeScript + Vite と Cloudflare Workers Static Assets + Hono を使用します。DB・認証・課金はまだ接続していません。配布形態とPoCの再利用範囲は [docs/distribution.md](docs/distribution.md)。
 
 ## 必要環境
 
