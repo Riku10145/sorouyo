@@ -47,7 +47,7 @@ export function Home({ today, initialDate }: { today: string; initialDate: strin
       <Brand />
       <button type="button" className="text-btn" onClick={() => notReady('設定')}><Icon name="settings" size={20} />設定</button>
     </header>
-    <div className="group-tabs" role="toolbar" aria-label="表示するグループ">
+    <div className="group-tabs" role="group" aria-label="表示するグループ">
       <button type="button" aria-pressed={visible.size === ALL.size} onClick={() => setVisible(ALL)}>すべて</button>
       {GROUPS.map(group => <button type="button" key={group.id} aria-pressed={visible.size < ALL.size && visible.has(group.id)}
         onClick={() => setVisible(new Set([group.id]))}><span className={`dot g-${group.id}`} aria-hidden="true" />{group.name}</button>)}

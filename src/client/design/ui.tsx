@@ -42,7 +42,7 @@ export function VoteMark({ vote, withLabel = false }: { vote: Vote | null; withL
 
 const ARROW_STEP: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
 
-export function VotePicker({ value, onChange, label }: { value: Vote | null; onChange: (vote: Vote) => void; label: string }) {
+export function VotePicker({ value, onChange, label, describedBy }: { value: Vote | null; onChange: (vote: Vote) => void; label: string; describedBy?: string }) {
   const current = Math.max(0, VOTES.findIndex(vote => vote.value === value));
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const step = ARROW_STEP[event.key];
@@ -52,7 +52,7 @@ export function VotePicker({ value, onChange, label }: { value: Vote | null; onC
     onChange(VOTES[next]!.value);
     (event.currentTarget.children[next] as HTMLElement | undefined)?.focus();
   };
-  return <div className="vote-picker" role="radiogroup" aria-label={label} onKeyDown={onKeyDown}>
+  return <div className="vote-picker" role="radiogroup" aria-label={label} aria-required="true" aria-invalid={describedBy && value === null ? true : undefined} aria-describedby={value === null ? describedBy : undefined} onKeyDown={onKeyDown}>
     {VOTES.map((vote, i) => <button type="button" key={vote.value} role="radio" aria-checked={value === vote.value} tabIndex={i === current ? 0 : -1}
       aria-label={`${vote.mark} ${VOTE_WORD[vote.value]}`} className={`vote-btn v-${vote.value}`} onClick={() => onChange(vote.value)}>
       <Icon name={MARK_ICON[vote.value]} size={24} />
@@ -82,5 +82,5 @@ export function Toaster() {
     showToast = next => { setMessage(next); clearTimeout(timer); timer = setTimeout(() => setMessage(''), 3200); };
     return () => clearTimeout(timer);
   }, []);
-  return <div className="toast" role="status" aria-live="polite" hidden={!message}>{message}</div>;
+  return <div role="status" aria-live="polite">{message && <div className="toast">{message}</div>}</div>;
 }

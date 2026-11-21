@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { answered, bestCandidate, dateLabel, shortDate, tally, weekday, dayTone } from '../../shared/model';
 import { SAMPLE_ORGANIZER, groupName, type Poll } from '../../shared/sample';
 import { Icon, InviteHero, VoteMark, notReady, toast } from '../design/ui';
@@ -10,6 +10,10 @@ export function PollStatus({ poll, selectedDate }: { poll: Poll; selectedDate: s
   const best = bestCandidate(poll);
   const [chosen, setChosen] = useState(best);
   const [confirmed, setConfirmed] = useState<number | null>(null);
+  const chosenCard = useRef<HTMLElement>(null);
+  const picked = useRef(false);
+  useEffect(() => { if (picked.current) { picked.current = false; chosenCard.current?.focus(); } }, [chosen]);
+  const choose = (index: number) => { picked.current = true; setChosen(index); };
   const you = poll.answers.find(answer => answer.name === SAMPLE_ORGANIZER);
   const others = poll.answers.filter(answer => answer !== you);
   const respondents = poll.answers.filter(answered).length;
@@ -49,7 +53,7 @@ export function PollStatus({ poll, selectedDate }: { poll: Poll; selectedDate: s
         const count = tally(poll, index);
         const label = `${dateLabel(item.date)} ${item.time}〜`;
         return index === chosen
-          ? <article key={item.date} className="cand-card" aria-label={`${label}（選択中）`}>
+          ? <article key={item.date} ref={chosenCard} tabIndex={-1} className="cand-card" aria-label={`${label}（選択中）`}>
             <div className="cand-top">
               <p className="cand-date"><span className="num">{shortDate(item.date)}</span><small className={dayTone(item.date)}>{weekday(item.date)}</small><span className="cand-time num">{item.time}〜</span></p>
               <div className="cand-flags">{index === best && <span>参加できる人が最多</span>}<span className="chip-selected"><Icon name="check" size={14} />選択中</span></div>
@@ -59,7 +63,7 @@ export function PollStatus({ poll, selectedDate }: { poll: Poll; selectedDate: s
               {others.map(answer => <li key={answer.name}><span className={`mark-circle v-${answer.votes[index] ?? 'none'}`}><VoteMark vote={answer.votes[index] ?? null} /></span><span>{answer.name}</span></li>)}
             </ul>
           </article>
-          : <button type="button" key={item.date} className="cand-row" onClick={() => setChosen(index)} aria-label={`${label}、参加${count.yes}、未定${count.maybe}、欠席${count.no}。この候補日を選ぶ`}>
+          : <button type="button" key={item.date} className="cand-row" onClick={() => choose(index)} aria-label={`${label}、参加${count.yes}、未定${count.maybe}、欠席${count.no}。この候補日を選ぶ`}>
             <span className="cand-date"><span className="num">{shortDate(item.date)}</span><small className={dayTone(item.date)}>{weekday(item.date)}</small><span className="cand-time num">{item.time}〜</span></span>
             <span className="counts"><span>参加<b>{count.yes}</b></span><span>未定<b className="maybe">{count.maybe}</b></span><span>欠席<b>{count.no}</b></span></span>
             <Icon name="chevronRight" size={18} />
