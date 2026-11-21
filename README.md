@@ -29,3 +29,5 @@ npm run dev
 個別コマンド：`npm test`、`npm run typecheck`、`npm run build`。Wrangler設定を変更した際は `npm run cf-typegen` で `worker-configuration.d.ts` を再生成します。
 
 `src/client/` は差し替え可能な最小画面、`src/worker/` はAPI（`AppType` をクライアントに型のみ共有）、`src/shared/` はPoCから移植した日付・投票集計の純粋関数です。URLフラグメントのトークンはAPIやログに送信しません。回答の保存機能は未実装です。
+
+ログインはWorkOS AuthKitを使用します。必要な環境変数（`WORKOS_API_KEY`・`WORKOS_CLIENT_ID`・`WORKOS_COOKIE_PASSWORD` など）、`/api/auth/*`・`/api/guest/*` の仕様は [docs/auth.md](docs/auth.md) を参照。未設定でもゲスト入口と `npm run check` はそのまま動きます。
