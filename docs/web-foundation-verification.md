@@ -82,7 +82,4 @@ content-type: application/json
 
 `fonts-noto-cjk` をインストールし、headless Chromeで375×812pxのスクリーンショットを取得・目視確認しました。日本語表示、日〜土のカレンダー、日本時間の今日の強調、ゲスト回答プレースホルダー、API接続済み表示が確認でき、横方向のはみ出しはありません。
 
-- `/`：`/home/ubuntu/shots/sorouyo-home-375.png`
-- `/r#abc`：`/home/ubuntu/shots/sorouyo-answer-375.png`
-
-スクリーンショットは実行環境の上記パスに保存しており、リポジトリには含めていません。実機のスマートフォンでは未確認です。
+375px幅のスクリーンショットを確認し、PRに添付しました。実機のスマートフォンでは未確認です。
