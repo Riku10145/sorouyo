@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Envelope, icons, stamps, type IconName } from './art';
 import { VOTES, type Vote } from '../../shared/model';
 import { groupName, type CalendarEvent, type GroupId, type Poll } from '../../shared/sample';
@@ -40,9 +40,20 @@ export function VoteMark({ vote, withLabel = false }: { vote: Vote | null; withL
   </span>;
 }
 
+const ARROW_STEP: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+
 export function VotePicker({ value, onChange, label }: { value: Vote | null; onChange: (vote: Vote) => void; label: string }) {
-  return <div className="vote-picker" role="radiogroup" aria-label={label}>
-    {VOTES.map(vote => <button type="button" key={vote.value} role="radio" aria-checked={value === vote.value}
+  const current = Math.max(0, VOTES.findIndex(vote => vote.value === value));
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = ARROW_STEP[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const next = (current + step + VOTES.length) % VOTES.length;
+    onChange(VOTES[next]!.value);
+    (event.currentTarget.children[next] as HTMLElement | undefined)?.focus();
+  };
+  return <div className="vote-picker" role="radiogroup" aria-label={label} onKeyDown={onKeyDown}>
+    {VOTES.map((vote, i) => <button type="button" key={vote.value} role="radio" aria-checked={value === vote.value} tabIndex={i === current ? 0 : -1}
       aria-label={`${vote.mark} ${VOTE_WORD[vote.value]}`} className={`vote-btn v-${vote.value}`} onClick={() => onChange(vote.value)}>
       <Icon name={MARK_ICON[vote.value]} size={24} />
     </button>)}

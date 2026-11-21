@@ -22,8 +22,8 @@ function Screen() {
   const requested = new URLSearchParams(search).get('date');
   const selected = validDate(requested) ? requested : today;
   if (pathname === '/r') return <GuestAnswer />;
-  const poll = pathname.match(/^\/polls\/([\w-]+)$/)?.[1];
-  if (poll && findPoll(poll)) return <PollStatus poll={findPoll(poll)!} selectedDate={validDate(requested) ? requested : SAMPLE_SELECTED_DATE} />;
+  const poll = findPoll(pathname.match(/^\/polls\/([\w-]+)$/)?.[1] ?? '');
+  if (poll) return <PollStatus poll={poll} selectedDate={validDate(requested) ? requested : SAMPLE_SELECTED_DATE} />;
   return <Home today={today} initialDate={selected} />;
 }
 

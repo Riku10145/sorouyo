@@ -34,7 +34,7 @@ export function AppShell({ active, selectedDate, visible, onToggleGroup, subpage
       </section>
       <section className="side-day" aria-label="選択した日の予定">
         <h2>{dateLabel(selectedDate)}の予定</h2>
-        {dayEvents.length ? <ul>{dayEvents.map(event => <li key={event.title}><GroupDot group={event.group} /><span className="num">{event.time ?? '終日'}</span>{event.title}</li>)}</ul> : <p>予定はありません</p>}
+        {dayEvents.length ? <ul>{dayEvents.map((event, i) => <li key={i}><GroupDot group={event.group} /><span className="num">{event.time ?? '終日'}</span>{event.title}</li>)}</ul> : <p>予定はありません</p>}
       </section>
       <button type="button" className="side-settings" onClick={() => notReady('設定')}><Icon name="settings" size={18} />設定<Icon name="chevronRight" size={16} /></button>
     </aside>

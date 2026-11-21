@@ -14,7 +14,7 @@ export function PollStatus({ poll, selectedDate }: { poll: Poll; selectedDate: s
   const others = poll.answers.filter(answer => answer !== you);
   const respondents = poll.answers.filter(answered).length;
   const candidate = poll.candidates[chosen]!;
-  const confirmLabel = `${dateLabel(candidate.date).replace(/[（）]/g, m => (m === '（' ? '(' : ')'))}に確定する`;
+  const confirmLabel = `${dateLabel(candidate.date).replace('（', '(').replace('）', ')')}に確定する`;
   const copy = async () => {
     try { await navigator.clipboard.writeText(guestUrl(poll)); toast('回答リンクをコピーしました'); }
     catch { toast(`回答リンク：${guestUrl(poll)}`); }
@@ -55,7 +55,7 @@ export function PollStatus({ poll, selectedDate }: { poll: Poll; selectedDate: s
               <div className="cand-flags">{index === best && <span>参加できる人が最多</span>}<span className="chip-selected"><Icon name="check" size={14} />選択中</span></div>
             </div>
             <ul className="member-marks">
-              {you && <li><span className="badge-pending">未回答</span><strong>あなた</strong></li>}
+              {you && <li>{answered(you) ? <span className={`mark-circle v-${you.votes[index] ?? 'none'}`}><VoteMark vote={you.votes[index] ?? null} /></span> : <span className="badge-pending">未回答</span>}<strong>あなた</strong></li>}
               {others.map(answer => <li key={answer.name}><span className={`mark-circle v-${answer.votes[index] ?? 'none'}`}><VoteMark vote={answer.votes[index] ?? null} /></span><span>{answer.name}</span></li>)}
             </ul>
           </article>

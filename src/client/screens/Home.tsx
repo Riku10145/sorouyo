@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { DAYS, dateLabel, dayTone, monthCells, shiftedMonth } from '../../shared/model';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { DAYS, dateFromKey, dateKey, dateLabel, dayTone, monthCells, shiftedMonth } from '../../shared/model';
 import { GROUPS, SAMPLE_EVENTS, groupName, type GroupId } from '../../shared/sample';
 import { monthArt } from '../design/art';
 import { Brand, EventPill, Icon, StampArt, notReady } from '../design/ui';
@@ -20,9 +20,27 @@ export function Home({ today, initialDate }: { today: string; initialDate: strin
   const toggle = (group: GroupId) => setVisible(current => {
     const next = new Set(current);
     if (next.has(group)) next.delete(group); else next.add(group);
-    return next.size ? next : ALL;
+    return next;
   });
   const go = (date: string) => { setSelected(date); setMonth(date.slice(0, 7)); };
+  const grid = useRef<HTMLDivElement>(null);
+  const keyMoved = useRef(false);
+  useEffect(() => {
+    if (!keyMoved.current) return;
+    keyMoved.current = false;
+    grid.current?.querySelector<HTMLElement>(`[data-date="${selected}"]`)?.focus();
+  }, [selected]);
+  const onGridKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = ({ ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 } as Record<string, number>)[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const from = (event.target as HTMLElement).closest<HTMLElement>('[data-date]')?.dataset.date ?? selected;
+    const next = dateFromKey(from);
+    next.setDate(next.getDate() + step);
+    keyMoved.current = true;
+    go(dateKey(next));
+  };
+  const focusable = cells.includes(selected) ? selected : cells.find(date => date.startsWith(month));
 
   return <AppShell active="calendar" selectedDate={selected} visible={visible} onToggleGroup={toggle}>
     <header className="m-header">
@@ -50,21 +68,21 @@ export function Home({ today, initialDate }: { today: string; initialDate: strin
           <button type="button" className="primary-btn desk-only" onClick={() => notReady('予定の追加')}><Icon name="plus" size={18} />予定を追加</button>
         </div>
       </div>
-      <div className="calendar" role="grid" aria-label={`${year}年${monthNumber}月のカレンダー`}>
+      <div className="calendar" role="grid" ref={grid} onKeyDown={onGridKey} aria-label={`${year}年${monthNumber}月のカレンダー`}>
         <div className="cal-row cal-head" role="row">{DAYS.map((day, i) => <span role="columnheader" key={day} className={i === 0 ? 'sun' : i === 6 ? 'sat' : ''}>{day}</span>)}</div>
         {Array.from({ length: cells.length / 7 }, (_, week) => <div className="cal-row" role="row" key={week}>
           {cells.slice(week * 7, week * 7 + 7).map(date => {
             const list = eventsOn(date);
             const names = list.map(event => `${groupName(event.group)} ${event.time ?? ''}${event.title}`).join('、');
-            return <button type="button" role="gridcell" key={date} onClick={() => go(date)}
+            return <button type="button" role="gridcell" key={date} data-date={date} tabIndex={date === focusable ? 0 : -1} onClick={() => go(date)}
               className={`cal-cell ${dayTone(date) ?? ''} ${date.startsWith(month) ? '' : 'outside'}`}
               aria-selected={date === selected} aria-current={date === today ? 'date' : undefined}
               aria-label={`${dateLabel(date)}${list.length ? `、予定${list.length}件：${names}` : ''}`}>
               <span className="cal-num">{Number(date.slice(8))}</span>
               <span className="cal-pills" aria-hidden="true">
-                {list.slice(0, 1).map(event => <span key={event.title} className="m-only"><EventPill event={event} /></span>)}
+                {list.slice(0, 1).map((event, i) => <span key={i} className="m-only"><EventPill event={event} /></span>)}
                 {list.length > 1 && <span className="more m-only">+{list.length - 1}</span>}
-                {list.slice(0, 3).map(event => <span key={event.title} className="desk-only"><EventPill event={event} long /></span>)}
+                {list.slice(0, 3).map((event, i) => <span key={i} className="desk-only"><EventPill event={event} long /></span>)}
               </span>
             </button>;
           })}
@@ -77,7 +95,7 @@ export function Home({ today, initialDate }: { today: string; initialDate: strin
         <h2 id="day-heading">{dateLabel(selected)}<span className="count">{dayEvents.length}件</span></h2>
         <button type="button" className="primary-btn" onClick={() => notReady('予定の追加')}><Icon name="plus" size={18} />予定を追加</button>
       </div>
-      {dayEvents.length ? <ul className="day-list">{dayEvents.map(event => <li key={event.title} className="day-item">
+      {dayEvents.length ? <ul className="day-list">{dayEvents.map((event, i) => <li key={i} className="day-item">
         <span className="day-time num">{event.time ?? '終日'}</span>
         <span className={`day-bar g-${event.group}`} aria-hidden="true" />
         <span className="day-text"><strong>{event.title}</strong><span>{groupName(event.group)}</span></span>
