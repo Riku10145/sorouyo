@@ -12,7 +12,7 @@
 | 配信・API | Cloudflare Workers Static Assets、TypeScript、Hono | 1回のデプロイで画面と同一オリジンのAPIを公開する。サーバーの常時起動、OS更新、別のAPIホストの管理を省ける。 |
 | 入出力 | Hono RPC、Zod | ルート定義からクライアントの型を導き、HTTPで受け取った値も同じスキーマで検証できる。 |
 | 永続化 | Cloudflare D1、Drizzle ORM / Kit | グループの所属、候補と投票の関係を外部キーと一意制約で表現できる。TypeScriptのテーブル定義からクエリ型と差分SQLを得られる。 |
-| 本人確認 | Auth0 Universal Login、Auth0 React SDK、Worker側の `jose` | 主催者とメンバーのサインイン・アカウント復旧を外部に任せる。登録せず回答するゲストはAuth0を通らない。 |
+| 本人確認 | WorkOS AuthKitのホスト型ログイン、Worker側のWorkOS TypeScript SDK | 主催者とメンバーのログインと多要素認証を無料枠で任せられる。初回はパスワードと認証アプリの確認コード（TOTP）を使う。ゲストは招待リンクだけで回答できる。 |
 | 有料販売 | Stripe Billing、ホスト型Checkout、Customer Portal、Entitlements | 支払い画面・決済情報・継続請求・解約・契約による利用権をStripeで管理できる。販売を始める時点で接続する。 |
 
 予定と回答には整合性が必要なので、初期の保存先をD1に一本化する。画面の再表示・操作後に最新データを取得する設計で始めれば、常時接続や同期用のキューも不要になる。Cloudflareで運用するリソースは静的アセット付きWorkerとD1のみ。[Static Assets](https://developers.cloudflare.com/workers/static-assets/) · [D1とDrizzle](https://orm.drizzle.team/docs/connect-cloudflare-d1)
@@ -27,12 +27,13 @@ flowchart LR
         DB[("D1")]
         API --> DB
     end
-    Auth["Auth0 Universal Login"]
+    Auth["WorkOS AuthKit"]
     Pay["Stripe（販売開始後）"]
     Host --> Web
     Guest --> Web
-    Host -->|"サインイン"| Auth
-    Host -->|"アクセストークン"| API
+    Host -->|"サインイン・多要素認証"| Auth
+    Host -->|"セッションCookie"| API
+    API -->|"認可コード交換・セッション更新"| Auth
     Guest -->|"招待リンクで回答"| API
     Host -->|"購入・契約管理画面"| Pay
     API -->|"Checkout・Portalの開始、利用権照会"| Pay
@@ -48,14 +49,16 @@ Viteが生成したHTML・JS・CSSと `/r` などの画面はStatic Assetsが配
 
 ## 初期費用と見直しの目安
 
-2026年11月21日に確認した公開料金。無料枠はアカウント内の他サービスでの消費も考慮する。固定費を抑えるため、初回はWorkers Free・D1の無料枠・Auth0 Freeで始め、販売開始までは決済を呼び出さない。
+2026年11月21日に確認した公開料金。無料枠はアカウント内の他サービスでの消費も考慮する。固定費を抑えるため、初回はWorkers Free・D1・WorkOS AuthKitの無料枠で始め、販売開始までは決済を呼び出さない。
 
 | 課金先 | 初期の目安 | 確認する指標 |
 | --- | --- | --- |
 | Cloudflare Workers | 静的アセットへの直接リクエストは無料・無制限。Freeの動的リクエストは10万件/日、CPUは1回10ms。Paidはアカウント単位で月額5米ドルから。 | APIリクエスト数、JWT検証を含むCPU時間と上限エラー。[Workers料金](https://developers.cloudflare.com/workers/platform/pricing/) · [アセット料金](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/) |
 | Cloudflare D1 | Freeは読取500万行/日、書込10万行/日、1 DBは500 MB、アカウント合計5 GB。 | 結果件数よりもスキャン行数が効く。月カレンダーと投票集計のクエリごとに読取行数を確認する。[D1料金](https://developers.cloudflare.com/d1/platform/pricing/) · [D1上限](https://developers.cloudflare.com/d1/platform/limits/) |
-| Auth0 | B2C Freeは月間アクティブユーザー25,000人まで。 | ログインする主催者・メンバーのMAU。リンク回答だけのゲストはアカウントを作成しない。[Auth0料金](https://auth0.com/pricing) |
+| WorkOS AuthKit | ユーザー管理は月間アクティブユーザー100万人まで無料。標準ドメインでTOTPを利用できる。本番環境の有効化には支払情報の登録が必要。 | ログインする主催者・メンバーの利用人数。リンク回答だけのゲストはアカウントを作成しない。[WorkOS料金](https://workos.com/pricing) · [本番環境](https://workos.com/docs/authkit/environments) |
 | Stripe | 日本の標準料金例はカード決済成功額の3.6%、Billingの従量プランは取引額の0.7%。 | 実売上と決済手段別手数料。独自ドメインの取得・更新料も別途見積もる。[決済料金](https://stripe.com/jp/pricing) · [Billing料金](https://stripe.com/jp/billing/pricing) |
+
+パスキーは登録時のログインドメインに紐づく。WorkOSは本番での有効化前に独自ログインドメイン（月99米ドル）を設定するよう推奨している。後からドメインを変更すると利用者はパスキーを再登録するため、初回は標準ドメインでTOTPを使い、パスキーは長期利用するログインドメインを決めてから導入する。[パスキーの仕様](https://workos.com/docs/authkit/passkeys) · [WorkOS料金](https://workos.com/pricing)
 
 例えば1日1,000件の調整があり、各調整に動的リクエストが20回なら、この経路は2万リクエスト/日になる。月カレンダーの閲覧やリトライは別に加算する。無料枠の上限に近づいたら、まず余分な再取得とD1の全件走査を確認する。公開前の負荷確認で余裕が取れない場合は、上限到達による停止とPaidの費用を比較して切り替える。
 
