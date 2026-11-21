@@ -10,15 +10,16 @@ const api = hc<AppType>(window.location.origin);
 function Calendar() {
   const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const month = today.slice(0, 7);
+  const cells = monthCells(month);
   return <section aria-labelledby="month-heading">
     <h2 id="month-heading">{month.slice(0, 4)}年{Number(month.slice(5))}月</h2>
     <p>みんなの予定を、ここから。</p>
-    <div className="calendar" role="grid" aria-label="今月のカレンダー">
-      <div className="week" role="row">{DAYS.map(day => <span role="columnheader" key={day}>{day}</span>)}</div>
-      {Array.from({ length: monthCells(month).length / 7 }, (_, week) => <div className="week" role="row" key={week}>
-        {monthCells(month).slice(week * 7, week * 7 + 7).map(date => <span role="gridcell" key={date} aria-label={dateLabel(date, { year: true })} aria-current={date === today ? 'date' : undefined} className={date.startsWith(month) ? '' : 'outside'}>{Number(date.slice(8))}</span>)}
-      </div>)}
-    </div>
+    <table className="calendar" aria-label="今月のカレンダー">
+      <thead><tr>{DAYS.map(day => <th scope="col" key={day}>{day}</th>)}</tr></thead>
+      <tbody>{Array.from({ length: cells.length / 7 }, (_, week) => <tr key={week}>
+        {cells.slice(week * 7, week * 7 + 7).map(date => <td key={date} aria-label={dateLabel(date, { year: true })} aria-current={date === today ? 'date' : undefined} className={date.startsWith(month) ? '' : 'outside'}>{Number(date.slice(8))}</td>)}
+      </tr>)}</tbody>
+    </table>
     <p className="muted">今日の日付は日本時間で表示しています。</p>
   </section>;
 }
@@ -46,7 +47,7 @@ function App() {
     return () => { active = false; };
   }, []);
   return <main><header><h1><a href="/">そろうよ</a></h1></header>
-    {window.location.pathname === '/r' ? <GuestAnswer /> : <Calendar />}
+    {['/r', '/r/'].includes(window.location.pathname) ? <GuestAnswer /> : <Calendar />}
     <footer>通信状況：{health}</footer>
   </main>;
 }
