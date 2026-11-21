@@ -5,7 +5,9 @@
 ## 必要環境
 
 - Node.js 24（`.nvmrc` に記載。`nvm use` で切替）
-- npm（`package-lock.json` を使用）
+- npm 12.2.2（`npm install -g npm@12.2.2` で明示的に導入。`package-lock.json` を使用）
+
+Node.js付属のnpmではなく、CIと同じnpm 12.2.2を使用してください。依存パッケージのインストールスクリプトは `package.json` の `allowScripts` で承認しています。
 
 ## 起動手順
 
