@@ -97,6 +97,43 @@ const checkOrigin = (c: Context): boolean => {
   return !origin || origin === new URL(c.req.url).origin;
 };
 
+/**
+ * セッションCookieを検証してログイン中の利用者を返す。期限切れはSDKで更新し、
+ * Cookieを置き換える。未ログイン・失効なら null。
+ */
+export async function resolveUser(c: Context, deps: AuthDeps): Promise<SessionUser | null> {
+  const sessionData = getCookie(c, SESSION_COOKIE);
+  if (!sessionData) return null;
+  const session = deps.workos.userManagement.loadSealedSession({
+    sessionData,
+    cookiePassword: deps.config.cookiePassword,
+  });
+  let result = await session.authenticate();
+  if (!result.authenticated) {
+    const refreshed = await session.refresh();
+    if (!refreshed.authenticated) return null;
+    if (refreshed.sealedSession) {
+      setCookie(c, SESSION_COOKIE, refreshed.sealedSession, sessionCookieOptions(c));
+    }
+    result = refreshed;
+  }
+  return result.user;
+}
+
+/**
+ * 権限判定（shared/permissions.can）に渡す Subject をCookieから導く。
+ * ログイン済みなら userId、未ログインでゲストCookieがあれば guestId。どちらも無ければ匿名。
+ */
+export async function resolveSubject(
+  c: Context,
+  deps?: AuthDeps,
+): Promise<{ userId?: string; guestId?: string }> {
+  const user = deps ? await resolveUser(c, deps) : null;
+  if (user) return { userId: user.id };
+  const guestId = getCookie(c, GUEST_COOKIE);
+  return guestId ? { guestId } : {};
+}
+
 const sessionCookieOptions = (c: Context) => ({
   httpOnly: true,
   secure: secure(c),
@@ -151,27 +188,14 @@ export function buildAuthRoutes(getDeps: GetAuthDeps) {
     .get('/me', async (c) => {
       const deps = getDeps(c);
       if (!deps) return c.json({ error: 'auth_not_configured' } as const, 503);
-      const sessionData = getCookie(c, SESSION_COOKIE);
-      if (!sessionData) return c.json({ error: 'unauthenticated' } as const, 401);
-      const session = deps.workos.userManagement.loadSealedSession({
-        sessionData,
-        cookiePassword: deps.config.cookiePassword,
-      });
-      let result = await session.authenticate();
-      if (!result.authenticated) {
-        const refreshed = await session.refresh();
-        if (!refreshed.authenticated) return c.json({ error: 'unauthenticated' } as const, 401);
-        if (refreshed.sealedSession) {
-          setCookie(c, SESSION_COOKIE, refreshed.sealedSession, sessionCookieOptions(c));
-        }
-        result = refreshed;
-      }
+      const user = await resolveUser(c, deps);
+      if (!user) return c.json({ error: 'unauthenticated' } as const, 401);
       return c.json({
         user: {
-          id: result.user.id,
-          email: result.user.email,
-          firstName: result.user.firstName ?? null,
-          lastName: result.user.lastName ?? null,
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName ?? null,
+          lastName: user.lastName ?? null,
         },
       } as const);
     })
