@@ -38,7 +38,7 @@ export function AppShell({ active, selectedDate, visible, onToggleGroup, subpage
       </section>
       <button type="button" className="side-settings" onClick={() => notReady('設定')}><Icon name="settings" size={18} />設定<Icon name="chevronRight" size={16} /></button>
     </aside>
-    <div className="app-main">{children}</div>
+    <main className="app-main">{children}</main>
     {!subpage && <nav className="bottom-nav" aria-label="メイン"><NavItems active={active} className="bottom-link" /></nav>}
   </div>;
 }
