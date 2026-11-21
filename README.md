@@ -20,12 +20,12 @@ npm run dev
 
 ## 確認手順
 
-- ブラウザの幅を375pxにして `/` を開き、「そろうよ」と日本時間の今月のカレンダーを確認します。
-- `/r#test-token` を直接開き、「回答画面」を確認します。`/r` は招待リンク不足のエラーを表示します。
+- ブラウザの幅を375pxと1440pxにして `/`（月カレンダー）、`/polls/sample`（回答状況）、`/r#sample`（ゲストの回答）を開きます。サンプルデータとPaperの対応は [docs/paper-screen-map.md](docs/paper-screen-map.md) を参照します。
+- `/r#sample-closed` は締切後、それ以外のトークンや `/r` は無効な招待リンクの画面を表示します。
 - `npm run check` でブラウザ・Workerの型検査、共有ロジック・APIのテスト、ビルドを実行します。
 - `npm run preview` でビルド済みアプリをWorkersランタイムで配信します。`/r` の直接アクセスもSPAに戻ります。
 - `/api/health` は `{"ok":true}`、不明な `/api/*` はJSONの404を返します。
 
 個別コマンド：`npm test`、`npm run typecheck`、`npm run build`。Wrangler設定を変更した際は `npm run cf-typegen` で `worker-configuration.d.ts` を再生成します。
 
-`src/client/` は差し替え可能な最小画面、`src/worker/` はAPI（`AppType` をクライアントに型のみ共有）、`src/shared/` はPoCから移植した日付・投票集計の純粋関数です。URLフラグメントのトークンはAPIやログに送信しません。回答の保存機能は未実装です。
+`src/client/` はPaperのデザインに合わせた画面（`design/` に共通部品とSVG）、`src/worker/` はAPI（`AppType` をクライアントに型のみ共有）、`src/shared/` はPoCから移植した日付・投票集計の純粋関数です。URLフラグメントのトークンはAPIやログに送信しません。回答の保存機能は未実装です。
