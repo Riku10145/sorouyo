@@ -70,6 +70,96 @@ export async function issueInviteToken(id: string): Promise<string | null> {
   return (await response.json()).token;
 }
 
+// --- グループ・予定・参加リンク（#24 #25 #26） ----------------------------------
+
+export interface GroupInfo { id: string; name: string; color: string | null; role: 'admin' | 'member' }
+export interface GroupDetail {
+  group: GroupInfo;
+  members: { id: string; name: string; role: 'admin' | 'member'; you: boolean }[];
+  counts: { events: number; polls: number; members: number };
+}
+export interface CalEvent {
+  id: string; date: string; startTime: string | null; title: string;
+  group: { id: string; name: string; color: string | null };
+  sourcePollId: string | null;
+}
+export interface JoinPreview {
+  group: { id: string; name: string; color: string | null };
+  inviterName: string | null;
+  memberCount: number;
+  upcoming: { date: string; title: string }[];
+  member: boolean;
+}
+
+export async function fetchGroups(): Promise<GroupInfo[] | null> {
+  const response = await api.api.groups.$get();
+  if (!response.ok) return null;
+  return (await response.json()).groups as GroupInfo[];
+}
+
+export async function createGroup(name: string, color: string | null): Promise<GroupInfo | null> {
+  const response = await api.api.groups.$post({ json: { name, color } });
+  if (!response.ok) return null;
+  return (await response.json()).group as GroupInfo;
+}
+
+export async function updateGroup(id: string, name: string, color: string | null): Promise<GroupInfo | null> {
+  const response = await api.api.groups[':id'].$patch({ param: { id }, json: { name, color } });
+  if (!response.ok) return null;
+  return (await response.json()).group as GroupInfo;
+}
+
+export async function deleteGroup(id: string): Promise<boolean> {
+  const response = await api.api.groups[':id'].$delete({ param: { id } });
+  return response.status === 204;
+}
+
+export async function fetchGroup(id: string): Promise<{ status: number; detail?: GroupDetail }> {
+  const response = await api.api.groups[':id'].$get({ param: { id } });
+  if (!response.ok) return { status: response.status };
+  return { status: 200, detail: await response.json() as GroupDetail };
+}
+
+export async function issueGroupInvite(id: string): Promise<string | null> {
+  const response = await api.api.groups[':id'].invites.$post({ param: { id } });
+  if (!response.ok) return null;
+  return (await response.json()).token;
+}
+
+export async function previewJoin(token: string): Promise<JoinPreview | null> {
+  const response = await api.api.groups.join.preview.$post({ json: { token } });
+  if (!response.ok) return null;
+  return await response.json() as JoinPreview;
+}
+
+export type JoinResult = { status: 'joined'; already: boolean; group: GroupInfo } | { status: 'invalid' } | { status: 'login' } | { status: 'error' };
+export async function joinGroup(token: string): Promise<JoinResult> {
+  const response = await api.api.groups.join.$post({ json: { token } });
+  if (response.status === 404) return { status: 'invalid' };
+  if (response.status === 401) return { status: 'login' };
+  if (!response.ok) return { status: 'error' };
+  const data = await response.json();
+  return { status: 'joined', already: data.already, group: data.group as GroupInfo };
+}
+
+export async function fetchCalendar(month: string): Promise<CalEvent[]> {
+  const response = await api.api.calendar.$get({ query: { month } });
+  if (!response.ok) return [];
+  return (await response.json()).events as CalEvent[];
+}
+
+export async function createEvent(groupId: string, body: { date: string; title: string; time?: string | null }): Promise<{ id: string } | null> {
+  const response = await api.api.groups[':id'].events.$post({ param: { id: groupId }, json: { date: body.date, title: body.title, time: body.time ?? null } });
+  if (!response.ok) return null;
+  return (await response.json()).event;
+}
+
+export async function fetchEvent(id: string): Promise<{ status: number; event?: CalEvent }> {
+  const response = await api.api.events[':id'].$get({ param: { id } });
+  if (!response.ok) return { status: response.status };
+  return { status: 200, event: (await response.json()).event as CalEvent };
+}
+
 /** UTCのISOを画面表示用の日本時間に変換する。 */
 export const toJst = (iso: string): { date: string; time: string } => ({
   date: new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso)),

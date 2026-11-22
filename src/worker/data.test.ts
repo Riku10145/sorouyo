@@ -15,11 +15,15 @@ import {
 } from './auth';
 import { buildDataRoutes, type DataEnv } from './data';
 
-// --- D1 を node:sqlite でシムする（migrations/0001_init.sql をそのまま適用） ---
+// --- D1 を node:sqlite でシムする（migrations/*.sql をそのまま適用） ---
 
 function makeDb(): D1Database {
   const db = new DatabaseSync(':memory:');
-  db.exec(readFileSync(new URL('../../migrations/0001_init.sql', import.meta.url), 'utf8'));
+  // 新しい migration を足したらここにも列挙する
+  for (const file of ['0001_init.sql', '0002_invite_creator.sql']) {
+    db.exec(readFileSync(new URL(`../../migrations/${file}`, import.meta.url), 'utf8'));
+  }
+  db.exec('PRAGMA foreign_keys = ON');
   const prepare = (sql: string) => {
     let args: unknown[] = [];
     const stmt = {
@@ -283,5 +287,177 @@ describe('data', () => {
     await post(app, db, `/api/polls/${pollId}/unconfirm`, {}, host);
     const cal2 = await req(app, db, '/api/calendar?month=2026-04', { headers: { cookie: member } });
     expect((await cal2.json() as { events: unknown[] }).events).toHaveLength(0);
+  });
+
+  test('グループ: 作成→名前・色の更新が一覧と予定に反映され、管理者以外は変更できない', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const member = await login(app, db, 'code_member');
+    const other = await login(app, db, 'code_other');
+
+    const created = await post(app, db, '/api/groups', { name: '家族', color: '#D97A3D' }, host);
+    expect(created.status).toBe(201);
+    const { group } = await created.json() as { group: { id: string; role: string } };
+    expect(group.role).toBe('admin');
+    // 色は16進のみ（自由テキストは400）
+    expect((await post(app, db, '/api/groups', { name: 'x', color: 'red' }, host)).status).toBe(400);
+    // 名前なしも400
+    expect((await post(app, db, '/api/groups', { name: ' ' }, host)).status).toBe(400);
+
+    // メンバーを参加させる
+    const invite = await req(app, db, `/api/groups/${group.id}/invites`, { method: 'POST', headers: { cookie: host } });
+    const { token: joinToken } = await invite.json() as { token: string };
+    await post(app, db, '/api/groups/join', { token: joinToken }, member);
+
+    // 管理者でないメンバー・非メンバーは更新できない
+    expect((await req(app, db, `/api/groups/${group.id}`, {
+      method: 'PATCH', headers: { cookie: member, 'content-type': 'application/json' }, body: JSON.stringify({ name: '改名' }),
+    })).status).toBe(403);
+    expect((await req(app, db, `/api/groups/${group.id}`, {
+      method: 'PATCH', headers: { cookie: other, 'content-type': 'application/json' }, body: JSON.stringify({ name: '改名' }),
+    })).status).toBe(403);
+
+    // 名前と色を変えると一覧・グループ詳細・カレンダーの予定に反映される
+    const updated = await req(app, db, `/api/groups/${group.id}`, {
+      method: 'PATCH', headers: { cookie: host, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '新しい家族', color: '#4E8A5A' }),
+    });
+    expect(updated.status).toBe(200);
+    await post(app, db, `/api/groups/${group.id}/events`, { date: '2026-05-01', title: 'ピクニック' }, host);
+    const list = await req(app, db, '/api/groups', { headers: { cookie: member } });
+    expect((await list.json() as { groups: { name: string; color: string }[] }).groups[0]).toMatchObject({ name: '新しい家族', color: '#4E8A5A' });
+    const cal = await req(app, db, '/api/calendar?month=2026-05', { headers: { cookie: member } });
+    expect((await cal.json() as { events: { group: { name: string; color: string } }[] }).events[0]!.group)
+      .toMatchObject({ name: '新しい家族', color: '#4E8A5A' });
+  });
+
+  test('グループ詳細: メンバー一覧と件数が取れ、削除は対象グループだけを消してリンクを無効化する', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const member = await login(app, db, 'code_member');
+
+    // 対象グループと、消えないことを確かめる別グループ
+    const { groupId, pollId } = await setupPoll(app, db, host);
+    const other = await post(app, db, '/api/groups', { name: '別グループ', color: '#7A5CA8' }, host);
+    const { group: otherGroup } = await other.json() as { group: { id: string } };
+    await post(app, db, `/api/groups/${otherGroup.id}/events`, { date: '2026-05-02', title: '残す予定' }, host);
+    await post(app, db, `/api/groups/${groupId}/events`, { date: '2026-05-03', title: '消す予定' }, host);
+    const joinRes = await req(app, db, `/api/groups/${groupId}/invites`, { method: 'POST', headers: { cookie: host } });
+    const { token: joinToken } = await joinRes.json() as { token: string };
+    await post(app, db, '/api/groups/join', { token: joinToken }, member);
+
+    // 詳細: メンバー2人・予定1件・調整1件
+    const detail = await req(app, db, `/api/groups/${groupId}`, { headers: { cookie: host } });
+    const { members, counts } = await detail.json() as { members: { name: string; role: string; you: boolean }[]; counts: { events: number; polls: number; members: number } };
+    expect(members.map(m => [m.name, m.role, m.you])).toEqual([['主催 一郎', 'admin', true], ['花子', 'member', false]]);
+    expect(counts).toEqual({ events: 1, polls: 1, members: 2 });
+
+    // メンバー・非ログインは削除できない
+    expect((await req(app, db, `/api/groups/${groupId}`, { method: 'DELETE', headers: { cookie: member } })).status).toBe(403);
+    expect((await req(app, db, `/api/groups/${groupId}`, { method: 'DELETE' })).status).toBe(401);
+
+    // 管理者が削除すると、グループの予定・調整・参加リンク・所属が消える
+    expect((await req(app, db, `/api/groups/${groupId}`, { method: 'DELETE', headers: { cookie: host } })).status).toBe(204);
+    expect((await req(app, db, `/api/groups/${groupId}`, { headers: { cookie: host } })).status).toBe(403);
+    expect((await post(app, db, '/api/groups/join/preview', { token: joinToken }, member)).status).toBe(404);
+    expect((await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } })).status).toBe(404);
+    const memberGroups = await req(app, db, '/api/groups', { headers: { cookie: member } });
+    expect((await memberGroups.json() as { groups: unknown[] }).groups).toHaveLength(0);
+
+    // 別グループの予定は残る
+    const cal = await req(app, db, '/api/calendar?month=2026-05', { headers: { cookie: host } });
+    const { events } = await cal.json() as { events: { title: string }[] };
+    expect(events.map(e => e.title)).toEqual(['残す予定']);
+  });
+
+  test('参加リンク: プレビューはグループ名・招待元・見える予定を返し、参加は冪等で権限は変えない', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const member = await login(app, db, 'code_member');
+    const created = await post(app, db, '/api/groups', { name: 'いつメン', color: '#4E8A5A' }, host);
+    const { group } = await created.json() as { group: { id: string } };
+    await post(app, db, `/api/groups/${group.id}/events`, { date: '2999-01-01', title: '遠い予定' }, host);
+    const res = await req(app, db, `/api/groups/${group.id}/invites`, { method: 'POST', headers: { cookie: host } });
+    const { token } = await res.json() as { token: string };
+
+    // 未ログインでもプレビューは見える（招待元・メンバー数・参加後に見える予定）
+    const preview = await post(app, db, '/api/groups/join/preview', { token });
+    expect(preview.status).toBe(200);
+    const pv = await preview.json() as { group: { name: string }; inviterName: string; memberCount: number; upcoming: { title: string }[]; member: boolean };
+    expect(pv.group.name).toBe('いつメン');
+    expect(pv.inviterName).toBe('主催 一郎');
+    expect(pv.memberCount).toBe(1);
+    expect(pv.upcoming.map(e => e.title)).toEqual(['遠い予定']);
+    expect(pv.member).toBe(false);
+
+    // 参加前はグループも予定も見えない
+    expect((await req(app, db, `/api/groups/${group.id}`, { headers: { cookie: member } })).status).toBe(403);
+
+    // 未ログインは参加できない
+    expect((await post(app, db, '/api/groups/join', { token })).status).toBe(401);
+
+    // 参加 → メンバーに加わり、そのグループだけが開ける
+    const joined = await post(app, db, '/api/groups/join', { token }, member);
+    expect(joined.status).toBe(201);
+    const j1 = await joined.json() as { already: boolean; group: { role: string } };
+    expect(j1).toMatchObject({ already: false, group: { role: 'member' } });
+    expect((await req(app, db, `/api/groups/${group.id}`, { headers: { cookie: member } })).status).toBe(200);
+
+    // リンクを開き直してもメンバーは増えない（再参加は冪等・already=true）
+    const again = await post(app, db, '/api/groups/join', { token }, member);
+    expect(again.status).toBe(200);
+    expect((await again.json() as { already: boolean }).already).toBe(true);
+    const detail = await req(app, db, `/api/groups/${group.id}`, { headers: { cookie: member } });
+    expect((await detail.json() as { counts: { members: number } }).counts.members).toBe(2);
+    const preview2 = await post(app, db, '/api/groups/join/preview', { token }, member);
+    expect((await preview2.json() as { member: boolean }).member).toBe(true);
+
+    // 管理者が参加リンクを使っても役割は下がらない
+    const hostJoin = await post(app, db, '/api/groups/join', { token }, host);
+    expect((await hostJoin.json() as { group: { role: string }; already: boolean })).toMatchObject({ already: true, group: { role: 'admin' } });
+
+    // 無効なトークンは404（プレビューも参加も）
+    expect((await post(app, db, '/api/groups/join/preview', { token: 'bad' })).status).toBe(404);
+    expect((await post(app, db, '/api/groups/join', { token: 'bad' }, member)).status).toBe(404);
+  });
+
+  test('予定: 追加・月カレンダー・詳細は所属メンバーのみ（他グループの予定は見えない）', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const member = await login(app, db, 'code_member');
+    const other = await login(app, db, 'code_other');
+    const created = await post(app, db, '/api/groups', { name: '家族', color: '#D97A3D' }, host);
+    const { group } = await created.json() as { group: { id: string } };
+    const joinRes = await req(app, db, `/api/groups/${group.id}/invites`, { method: 'POST', headers: { cookie: host } });
+    const { token } = await joinRes.json() as { token: string };
+    await post(app, db, '/api/groups/join', { token }, member);
+
+    // 非メンバーは予定を作れない
+    expect((await post(app, db, `/api/groups/${group.id}/events`, { date: '2026-06-10', title: 'x' }, other)).status).toBe(403);
+
+    const made = await post(app, db, `/api/groups/${group.id}/events`, { date: '2026-06-10', time: '19:00', title: '夕食' }, member);
+    expect(made.status).toBe(201);
+    const { event } = await made.json() as { event: { id: string } };
+
+    // 当月は見えて翌月には出ない
+    const cal = await req(app, db, '/api/calendar?month=2026-06', { headers: { cookie: member } });
+    const { events } = await cal.json() as { events: { id: string; title: string; startTime: string; group: { name: string; color: string } }[] };
+    expect(events).toMatchObject([{ id: event.id, title: '夕食', startTime: '19:00', group: { name: '家族', color: '#D97A3D' } }]);
+    const calNext = await req(app, db, '/api/calendar?month=2026-07', { headers: { cookie: member } });
+    expect((await calNext.json() as { events: unknown[] }).events).toHaveLength(0);
+    // 別アカウントの月には出ない
+    const calOther = await req(app, db, '/api/calendar?month=2026-06', { headers: { cookie: other } });
+    expect((await calOther.json() as { events: unknown[] }).events).toHaveLength(0);
+
+    // 詳細はメンバーのみ
+    const detail = await req(app, db, `/api/events/${event.id}`, { headers: { cookie: member } });
+    expect(detail.status).toBe(200);
+    expect((await detail.json() as { event: { title: string; sourcePollId: string | null } }).event).toMatchObject({ title: '夕食', sourcePollId: null });
+    expect((await req(app, db, `/api/events/${event.id}`, { headers: { cookie: other } })).status).toBe(403);
+    expect((await req(app, db, `/api/events/${event.id}`, { headers: { cookie: await guest(app, db) } })).status).toBe(401);
   });
 });

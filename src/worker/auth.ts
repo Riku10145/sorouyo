@@ -13,6 +13,7 @@ export interface AuthEnv {
 
 export const SESSION_COOKIE = 'sorouyo_session';
 export const STATE_COOKIE = 'sorouyo_state';
+export const NEXT_COOKIE = 'sorouyo_next';
 export const GUEST_COOKIE = 'sorouyo_guest';
 
 export interface SessionUser {
@@ -211,13 +212,21 @@ export function buildAuthRoutes(getDeps: GetAuthDeps) {
       const deps = getDeps(c);
       if (!deps) return c.json({ error: 'auth_not_configured' } as const, 503);
       const state = crypto.randomUUID();
-      setCookie(c, STATE_COOKIE, state, {
+      const stateCookie = {
         httpOnly: true,
         secure: secure(c),
-        sameSite: 'Lax',
+        sameSite: 'Lax' as const,
         path: '/',
         maxAge: 600,
-      });
+      };
+      setCookie(c, STATE_COOKIE, state, stateCookie);
+      // ログイン後の戻り先（例: /join#<token>）。同一オリジンの相対パスのみ受け付ける
+      const next = c.req.query('next');
+      if (next && next.startsWith('/') && !next.startsWith('//') && next.length <= 500) {
+        setCookie(c, NEXT_COOKIE, next, stateCookie);
+      } else {
+        deleteCookie(c, NEXT_COOKIE, { path: '/' });
+      }
       const url = deps.workos.userManagement.getAuthorizationUrl({
         clientId: deps.config.clientId,
         redirectUri: deps.config.redirectUri,
@@ -243,7 +252,9 @@ export function buildAuthRoutes(getDeps: GetAuthDeps) {
         });
         if (!result.sealedSession) return c.json({ error: 'session_unsealed' } as const, 502);
         setCookie(c, SESSION_COOKIE, result.sealedSession, sessionCookieOptions(c));
-        return c.redirect('/settings', 302);
+        const next = getCookie(c, NEXT_COOKIE);
+        deleteCookie(c, NEXT_COOKIE, { path: '/' });
+        return c.redirect(next && next.startsWith('/') && !next.startsWith('//') ? next : '/settings', 302);
       } catch {
         return c.json({ error: 'auth_failed' } as const, 401);
       }

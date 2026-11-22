@@ -5,7 +5,7 @@ import { Brand, Icon, InviteHero, VOTE_WORD, VoteMark, VotePicker } from '../des
 import { Envelope } from '../design/art';
 import { api, fetchInvite, submitAnswer, toJst, type AnswerResult, type InvitePoll } from '../api';
 
-function useHashToken() {
+export function useHashToken() {
   const [token, setToken] = useState(window.location.hash.slice(1).trim());
   useEffect(() => {
     const update = () => setToken(window.location.hash.slice(1).trim());

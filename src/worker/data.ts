@@ -49,7 +49,7 @@ interface EventRow {
 }
 interface InviteRow {
   id: string; purpose: 'answer' | 'join'; poll_id: string | null; group_id: string | null;
-  token_hash: string; expires_at: string | null; revoked_at: string | null;
+  token_hash: string; expires_at: string | null; revoked_at: string | null; created_by: string | null;
 }
 
 const all = <T>(stmt: Promise<{ results: T[] }>) => stmt.then(r => r.results);
@@ -99,17 +99,17 @@ const memberRole = async (c: C, groupId: string, userId: string) =>
 const findInvite = async (c: C, token: string) => {
   const hash = await sha256(token);
   const invite = await get<InviteRow>(c.env.DB.prepare(
-    `SELECT id, purpose, poll_id, group_id, token_hash, expires_at, revoked_at FROM invites WHERE token_hash = ?`
+    `SELECT id, purpose, poll_id, group_id, token_hash, expires_at, revoked_at, created_by FROM invites WHERE token_hash = ?`
   ).bind(hash).first());
   if (!invite || invite.revoked_at || (invite.expires_at && invite.expires_at <= now())) return undefined;
   return invite;
 };
 
-const newInvite = async (c: C, purpose: 'answer' | 'join', ref: { pollId?: string; groupId?: string }) => {
+const newInvite = async (c: C, purpose: 'answer' | 'join', ref: { pollId?: string; groupId?: string }, createdBy?: string) => {
   const token = newToken();
   await c.env.DB.prepare(
-    `INSERT INTO invites (id, purpose, poll_id, group_id, token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(crypto.randomUUID(), purpose, ref.pollId ?? null, ref.groupId ?? null, await sha256(token), now()).run();
+    `INSERT INTO invites (id, purpose, poll_id, group_id, token_hash, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(crypto.randomUUID(), purpose, ref.pollId ?? null, ref.groupId ?? null, await sha256(token), createdBy ?? null, now()).run();
   return token;
 };
 
@@ -156,7 +156,9 @@ async function writeAnswer(
 
 // --- バリデーション ----------------------------------------------------------
 
-const createGroupBody = z.object({ name: z.string().trim().min(1).max(40), color: z.string().trim().max(20).nullish() });
+// グループ色は16進カラーコード。画面はパレットから選ぶ
+const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+const createGroupBody = z.object({ name: z.string().trim().min(1).max(40), color: colorSchema.nullish() });
 const joinBody = z.object({ token: z.string().min(1) });
 const createPollBody = z.object({
   title: z.string().trim().min(1).max(60),
@@ -225,11 +227,42 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if ((await memberRole(c, groupId, subject.userId)) !== 'admin') {
       return c.json({ error: 'forbidden' } as const, 403);
     }
-    const token = await newInvite(c, 'join', { groupId });
+    const token = await newInvite(c, 'join', { groupId }, subject.userId);
     return c.json({ token } as const, 201);
   })
 
-  // 参加リンクでログイン済み利用者が明示的に「参加」して所属を作る
+  // 参加リンクのプレビュー。リンクを持つ人にグループ名・招待元・参加すると見える情報だけを出す
+  .post('/groups/join/preview', json(joinBody), async (c) => {
+    if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
+    const body = { data: c.req.valid('json') };
+    const invite = await findInvite(c, body.data.token);
+    if (!invite || invite.purpose !== 'join' || !invite.group_id) {
+      return c.json({ error: 'invite_invalid' } as const, 404);
+    }
+    const group = await get<GroupRow>(c.env.DB.prepare(`SELECT id, name, color FROM groups WHERE id = ?`).bind(invite.group_id).first());
+    if (!group) return c.json({ error: 'invite_invalid' } as const, 404);
+    const subject = await subjectOf(c);
+    const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
+    const [inviter, memberCount, upcoming] = await Promise.all([
+      invite.created_by
+        ? get<{ display_name: string | null }>(c.env.DB.prepare(`SELECT display_name FROM users WHERE id = ?`).bind(invite.created_by).first())
+        : Promise.resolve(null),
+      get<{ n: number }>(c.env.DB.prepare(`SELECT COUNT(*) AS n FROM memberships WHERE group_id = ?`).bind(invite.group_id).first()),
+      all<{ date: string; title: string }>(c.env.DB.prepare(
+        `SELECT date, title FROM events WHERE group_id = ? AND date >= ? ORDER BY date, start_time LIMIT 3`
+      ).bind(invite.group_id, today).all()),
+    ]);
+    const member = subject.userId ? (await memberRole(c, invite.group_id, subject.userId)) !== undefined : false;
+    return c.json({
+      group,
+      inviterName: inviter?.display_name ?? null,
+      memberCount: memberCount?.n ?? 0,
+      upcoming,
+      member,
+    } as const);
+  })
+
+  // 参加リンクでログイン済み利用者が明示的に「参加」して所属を作る。再参加は冪等（役割は変えない）
   .post('/groups/join', json(joinBody), async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const subject = await subjectOf(c);
@@ -239,12 +272,99 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!invite || invite.purpose !== 'join' || !invite.group_id) {
       return c.json({ error: 'invite_invalid' } as const, 404);
     }
-    await c.env.DB.prepare(
-      `INSERT INTO memberships (group_id, user_id, role, created_at) VALUES (?, ?, 'member', ?)
-       ON CONFLICT (group_id, user_id) DO NOTHING`
-    ).bind(invite.group_id, subject.userId, now()).run();
+    const existing = await memberRole(c, invite.group_id, subject.userId);
+    if (!existing) {
+      await c.env.DB.prepare(
+        `INSERT INTO memberships (group_id, user_id, role, created_at) VALUES (?, ?, 'member', ?)
+         ON CONFLICT (group_id, user_id) DO NOTHING`
+      ).bind(invite.group_id, subject.userId, now()).run();
+    }
     const group = await get<GroupRow>(c.env.DB.prepare(`SELECT id, name, color FROM groups WHERE id = ?`).bind(invite.group_id).first());
-    return c.json({ group: { ...group!, role: 'member' } } as const, 201);
+    return c.json({ group: { ...group!, role: existing ?? 'member' }, already: existing !== undefined } as const, existing ? 200 : 201);
+  })
+
+  // グループ詳細（メンバー以上）。メンバー一覧と、削除確認に出す件数を含める
+  .get('/groups/:id', async (c) => {
+    const subject = await subjectOf(c);
+    if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
+    const groupId = c.req.param('id');
+    const role = await memberRole(c, groupId, subject.userId);
+    if (!role) return c.json({ error: 'forbidden' } as const, 403);
+    const group = await get<GroupRow>(c.env.DB.prepare(`SELECT id, name, color FROM groups WHERE id = ?`).bind(groupId).first());
+    if (!group) return c.json({ error: 'not_found' } as const, 404);
+    const [members, counts] = await Promise.all([
+      all<{ user_id: string; display_name: string | null; email: string | null; role: 'admin' | 'member' }>(c.env.DB.prepare(
+        `SELECT m.user_id, u.display_name, u.email, m.role FROM memberships m JOIN users u ON u.id = m.user_id
+         WHERE m.group_id = ? ORDER BY m.created_at`
+      ).bind(groupId).all()),
+      get<{ events: number; polls: number }>(c.env.DB.prepare(
+        `SELECT (SELECT COUNT(*) FROM events WHERE group_id = ?) AS events,
+                (SELECT COUNT(*) FROM polls WHERE group_id = ?) AS polls`
+      ).bind(groupId, groupId).first()),
+    ]);
+    return c.json({
+      group: { ...group, role },
+      members: members.map(m => ({ id: m.user_id, name: m.display_name ?? m.email ?? '名無し', role: m.role, you: m.user_id === subject.userId })),
+      counts: { events: counts?.events ?? 0, polls: counts?.polls ?? 0, members: members.length },
+    } as const);
+  })
+
+  // グループの名前・色の変更（管理者のみ）
+  .patch('/groups/:id', json(createGroupBody), async (c) => {
+    if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
+    const subject = await subjectOf(c);
+    if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
+    const groupId = c.req.param('id');
+    if ((await memberRole(c, groupId, subject.userId)) !== 'admin') {
+      return c.json({ error: 'forbidden' } as const, 403);
+    }
+    const body = { data: c.req.valid('json') };
+    const result = await c.env.DB.prepare(`UPDATE groups SET name = ?, color = ? WHERE id = ?`)
+      .bind(body.data.name, body.data.color ?? null, groupId).run();
+    if (!result.meta.changes) return c.json({ error: 'not_found' } as const, 404);
+    return c.json({ group: { id: groupId, name: body.data.name, color: body.data.color ?? null, role: 'admin' } } as const);
+  })
+
+  // グループの削除（管理者のみ）。所属・予定・調整・候補・回答・票・招待を同一バッチで消す
+  .delete('/groups/:id', async (c) => {
+    if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
+    const subject = await subjectOf(c);
+    if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
+    const groupId = c.req.param('id');
+    if ((await memberRole(c, groupId, subject.userId)) !== 'admin') {
+      return c.json({ error: 'forbidden' } as const, 403);
+    }
+    const inPolls = `SELECT id FROM polls WHERE group_id = ?`;
+    const inAnswers = `SELECT id FROM answers WHERE poll_id IN (${inPolls})`;
+    await c.env.DB.batch([
+      c.env.DB.prepare(`DELETE FROM votes WHERE answer_id IN (${inAnswers})`).bind(groupId),
+      c.env.DB.prepare(`DELETE FROM answers WHERE poll_id IN (${inPolls})`).bind(groupId),
+      c.env.DB.prepare(`DELETE FROM candidates WHERE poll_id IN (${inPolls})`).bind(groupId),
+      c.env.DB.prepare(`DELETE FROM invites WHERE group_id = ? OR poll_id IN (${inPolls})`).bind(groupId, groupId),
+      c.env.DB.prepare(`DELETE FROM events WHERE group_id = ?`).bind(groupId),
+      c.env.DB.prepare(`DELETE FROM polls WHERE group_id = ?`).bind(groupId),
+      c.env.DB.prepare(`DELETE FROM memberships WHERE group_id = ?`).bind(groupId),
+      c.env.DB.prepare(`DELETE FROM groups WHERE id = ?`).bind(groupId),
+    ]);
+    return c.body(null, 204);
+  })
+
+  // 予定の詳細（所属メンバーのみ）
+  .get('/events/:id', async (c) => {
+    const subject = await subjectOf(c);
+    if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
+    const event = await get<EventRow & { group_name: string; group_color: string | null }>(c.env.DB.prepare(
+      `SELECT e.*, g.name AS group_name, g.color AS group_color FROM events e JOIN groups g ON g.id = e.group_id WHERE e.id = ?`
+    ).bind(c.req.param('id')).first());
+    if (!event) return c.json({ error: 'not_found' } as const, 404);
+    if (!(await memberRole(c, event.group_id, subject.userId))) return c.json({ error: 'forbidden' } as const, 403);
+    return c.json({
+      event: {
+        id: event.id, date: event.date, startTime: event.start_time, title: event.title,
+        group: { id: event.group_id, name: event.group_name, color: event.group_color },
+        sourcePollId: event.source_poll_id,
+      },
+    } as const);
   })
 
   // 調整の作成（メンバー以上）。回答リンクを発行し、トークンはこのレスポンスにだけ含める
@@ -265,8 +385,8 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
       ...body.data.candidates.map((cand, i) =>
         c.env.DB.prepare(`INSERT INTO candidates (id, poll_id, position, date, start_time) VALUES (?, ?, ?, ?, ?)`)
           .bind(crypto.randomUUID(), pollId, i, cand.date, cand.time ?? null)),
-      c.env.DB.prepare(`INSERT INTO invites (id, purpose, poll_id, token_hash, created_at) VALUES (?, 'answer', ?, ?, ?)`)
-        .bind(crypto.randomUUID(), pollId, await sha256(token), now()),
+      c.env.DB.prepare(`INSERT INTO invites (id, purpose, poll_id, token_hash, created_by, created_at) VALUES (?, 'answer', ?, ?, ?, ?)`)
+        .bind(crypto.randomUUID(), pollId, await sha256(token), subject.userId, now()),
     ];
     await c.env.DB.batch(stmts);
     return c.json({ poll: { id: pollId }, token } as const, 201);
@@ -280,7 +400,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const poll = await get<PollRow>(c.env.DB.prepare(`SELECT * FROM polls WHERE id = ?`).bind(c.req.param('id')).first());
     if (!poll) return c.json({ error: 'not_found' } as const, 404);
     if (!(await memberRole(c, poll.group_id, subject.userId))) return c.json({ error: 'forbidden' } as const, 403);
-    const token = await newInvite(c, 'answer', { pollId: poll.id });
+    const token = await newInvite(c, 'answer', { pollId: poll.id }, subject.userId);
     return c.json({ token } as const, 201);
   })
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { answered, bestCandidate, dateLabel, shortDate, tally, weekday, dayTone } from '../../shared/model';
 import { SAMPLE_ORGANIZER, type Poll } from '../../shared/sample';
-import { Icon, InviteHero, VoteMark, notReady, toast } from '../design/ui';
+import { Icon, InviteHero, VoteMark, notReady, toast, type DisplayGroup } from '../design/ui';
 import { AppShell } from './Shell';
 import { confirmCandidate, fetchMemberPoll, issueInviteToken, toJst, type MemberPoll } from '../api';
 
@@ -22,7 +22,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
   if (result === 'loading') return null;
   if (!result.poll) {
     const login = result.status === 401;
-    return <AppShell active="polls" selectedDate={selectedDate} subpage>
+    return <AppShell active="polls" selectedDate={selectedDate} groups={[]} subpage>
       <div className="m-only m-back"><a className="text-btn" href="/"><Icon name="chevronLeft" size={20} />日程調整</a></div>
       <section className="notice-card" role="alert" style={{ margin: '24px 16px' }}>
         <Icon name="link" size={32} />
@@ -96,7 +96,8 @@ export function PollStatus({ poll, selectedDate, onConfirm, onCopyLink, onAnswer
   </p>;
   const progress = <p className="progress"><span className="bars" aria-hidden="true">{poll.answers.map((_, i) => <i key={i} className={i < respondents ? 'on' : ''} />)}</span>{poll.answers.length}人中{respondents}人が回答</p>;
 
-  return <AppShell active="polls" selectedDate={selectedDate} subpage>
+  const group: DisplayGroup = { id: poll.token || poll.title, name: poll.group.name, color: poll.group.color ?? null, className: poll.group.className };
+  return <AppShell active="polls" selectedDate={selectedDate} groups={[group]} subpage>
     <div className="m-only m-back"><a className="text-btn" href="/"><Icon name="chevronLeft" size={20} />日程調整</a></div>
     <div className="desk-only poll-toolbar">
       <p className="page-label">日程調整</p>
