@@ -44,6 +44,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
     closed: remote.status === 'confirmed',
     candidates: remote.candidates.map(c => ({ id: c.id, date: c.date, time: c.startTime ?? '' })),
     answers: remote.answers.map(a => ({
+      id: a.id,
       name: a.name,
       comment: a.comment ?? undefined,
       own: a.own,
@@ -79,9 +80,10 @@ export function PollStatus({ poll, selectedDate, onConfirm, onCopyLink, onAnswer
   const respondents = poll.answers.filter(answered).length;
   const candidate = poll.candidates[chosen]!;
   const confirmLabel = `${dateLabel(candidate.date).replace('（', '(').replace('）', ')')}に確定する`;
-  const linkUrl = async () => onCopyLink ? (await onCopyLink()) || guestUrl(poll) : guestUrl(poll);
+  const linkUrl = async () => onCopyLink ? await onCopyLink() : guestUrl(poll);
   const copy = async () => {
     const url = await linkUrl();
+    if (!url) { toast('回答リンクを作れませんでした'); return; }
     try { await navigator.clipboard.writeText(url); toast('回答リンクをコピーしました'); }
     catch { toast(`回答リンク：${url}`); }
   };
@@ -135,7 +137,7 @@ export function PollStatus({ poll, selectedDate, onConfirm, onCopyLink, onAnswer
             <Icon name="chevronRight" size={18} />
           </button>;
       })}
-      {you && !answered(you) && <div className="you-row"><p>あなたはまだ未回答です</p><button type="button" className="soft-btn" onClick={() => onAnswerLink ? onAnswerLink() : window.location.href = `/r#${poll.token}`}><Icon name="edit" size={18} />回答する</button></div>}
+      {(!you || !answered(you)) && <div className="you-row"><p>あなたはまだ未回答です</p><button type="button" className="soft-btn" onClick={() => onAnswerLink ? onAnswerLink() : window.location.href = `/r#${poll.token}`}><Icon name="edit" size={18} />回答する</button></div>}
     </section>
 
     <section className="desk-only matrix-card" aria-label="候補日ごとの回答">
@@ -144,7 +146,7 @@ export function PollStatus({ poll, selectedDate, onConfirm, onCopyLink, onAnswer
           <button type="button" className="matrix-date" aria-pressed={index === chosen} onClick={() => setChosen(index)}>
             <strong>{dateLabel(item.date)}</strong><span className="num">{item.time}〜</span>{index === chosen && <span className="chip-soft">選択中</span>}
           </button></th>)}</tr></thead>
-        <tbody>{poll.answers.map(answer => <tr key={answer.name} className={answer === you ? 'you' : ''}>
+        <tbody>{poll.answers.map(answer => <tr key={answer.id ?? answer.name} className={answer === you ? 'you' : ''}>
           <th scope="row">{answer.name}{answer === you && '（あなた）'}</th>
           {poll.candidates.map((item, index) => <td key={item.id ?? item.date}><VoteMark vote={answer.votes[index] ?? null} withLabel /></td>)}
         </tr>)}</tbody>

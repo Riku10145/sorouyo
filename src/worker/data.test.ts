@@ -215,6 +215,16 @@ describe('data', () => {
     // 悪いトークンは404
     expect((await post(app, db, '/api/invite', { token: 'bad' })).status).toBe(404);
 
+    // ゲストCookie未発行の初回ゲストでも、リンクがあれば回答できる（サーバがCookieを発行する）
+    const firstTimer = await post(app, db, '/api/invite', { token });
+    const candId = (await firstTimer.json() as { poll: { candidates: { id: string }[] } }).poll.candidates[0]!.id;
+    const res = await req(app, db, '/api/invite/answer', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token, name: '初回', votes: [{ candidateId: candId, value: 'maybe' }] }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.getSetCookie().some(v => v.startsWith(`${GUEST_COOKIE}=`))).toBe(true);
+
     // 自分の回答だけが返る（他人の回答は含まれない）
     await post(app, db, '/api/invite/answer', { token, name: '他人', votes: [{ candidateId: 'x', value: 'yes' }] }, await guest(app, db));
     const invite = await post(app, db, '/api/invite', { token }, b);

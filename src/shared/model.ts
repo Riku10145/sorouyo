@@ -44,7 +44,7 @@ export function tally(poll: { answers: readonly { votes: readonly unknown[] }[] 
   return result;
 }
 
-export type PollAnswer = { name: string; votes: readonly (Vote | null)[]; comment?: string; own?: boolean };
+export type PollAnswer = { name: string; votes: readonly (Vote | null)[]; comment?: string; own?: boolean; id?: string };
 
 export const answered = (answer: PollAnswer): boolean => answer.votes.some(vote => vote !== null);
 

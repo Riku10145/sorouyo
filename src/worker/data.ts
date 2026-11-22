@@ -7,7 +7,7 @@ import { can, type PollTarget, type Subject } from '../shared/permissions';
 import { getCookie } from 'hono/cookie';
 import {
   GUEST_COOKIE, authDeps, checkOrigin, ensureGuest, resolveUser, verifyGuestId,
-  type AuthDeps, type AuthEnv, type GetAuthDeps,
+  type AuthEnv, type GetAuthDeps,
 } from './auth';
 
 export interface DataEnv extends AuthEnv {
@@ -494,17 +494,20 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!poll) return c.json({ error: 'invite_invalid' } as const, 404);
 
     const subject = await subjectOf(c);
+    // 初回のゲストはCookieがまだ無いので、ここで発行してからリンク回答者として判定する
+    if (!subject.userId && !subject.guestId) subject.guestId = await ensureGuest(c);
     const target = await pollTarget(c, poll, true);
     if (!can(subject, 'answerPoll', target)) return c.json({ error: 'forbidden' } as const, 403);
 
-    const ids = subject.userId ? { userId: subject.userId } : { guestId: await ensureGuest(c) };
+    const ids = subject.userId ? { userId: subject.userId } : { guestId: subject.guestId! };
     const key = ids.userId ? `u:${ids.userId}` : `g:${ids.guestId}`;
 
-    // 対象調整に属する候補だけを受理する
+    // 対象調整に属する候補だけを受理し、同一候補の重複送信は最初の1件に絞る
     const validIds = new Set(
       (await all<{ id: string }>(c.env.DB.prepare(`SELECT id FROM candidates WHERE poll_id = ?`).bind(poll.id).all())).map(row => row.id)
     );
-    const votes = body.data.votes.filter(v => validIds.has(v.candidateId));
+    const seen = new Set<string>();
+    const votes = body.data.votes.filter(v => validIds.has(v.candidateId) && !seen.has(v.candidateId) && (seen.add(v.candidateId), true));
     if (!votes.length) return c.json({ error: 'invalid_body' } as const, 400);
 
     const { saved, savedVotes } = await writeAnswer(c, poll.id, key, ids, body.data.name, body.data.comment ?? null, votes);
