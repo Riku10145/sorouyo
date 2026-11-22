@@ -45,7 +45,7 @@ export function Settings() {
         <p>主催者としてログインすると、自分のグループや日程調整を管理できます。</p>
       </section>
       <a className="about-row" href="/api/auth/login" onClick={(event) => void login(event)}><span><strong>ログイン</strong><span>別の端末でも同じアカウントでログインできます。</span></span><Icon name="chevronRight" size={18} /></a>
-      {loginUnavailable && <p className="form-error" role="alert">ログイン機能はまだ設定されていません。WorkOSの環境変数が入った環境でお試しください。</p>}
+      {loginUnavailable && <p className="form-error card" role="alert">ログイン機能はまだ設定されていません。WorkOSの環境変数が入った環境でお試しください。</p>}
     </>}
     {me && <>
       <section className="invite-card">
