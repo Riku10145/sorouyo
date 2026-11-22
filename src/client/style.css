@@ -160,6 +160,7 @@ button:disabled { cursor: default; }
 .counts b { font-family: var(--font-num); font-size: 17px; color: var(--color-ink); }
 .counts b.maybe { color: var(--color-maybe-ink); }
 .you-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; font-size: 13px; font-weight: 700; color: var(--color-ink); }
+/* 確定バーの高さ目安（ボタン+上下padding+safe-area）。バーの内容が高くなったらここを調整する */
 .app-shell.subpage { --confirm-bar-space: calc(74px + env(safe-area-inset-bottom, 0px)); padding-bottom: 0; }
 .you-row a { scroll-margin-bottom: var(--confirm-bar-space); }
 .confirm-bar { position: sticky; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(to bottom, rgba(251, 251, 247, 0), var(--color-bg) 30%); }

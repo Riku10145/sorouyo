@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { chromium } from 'playwright-core';
 
-test('unanswered poll action scrolls clear of the sticky confirmation bar', async () => {
+// CDP接続できるChromeとdevサーバが前提。`npm run test:browser` で opt-in して実行する
+// （`node --test scripts/` のような一括実行ではスキップされる）
+test('unanswered poll action scrolls clear of the sticky confirmation bar', {
+  skip: process.env.BROWSER_TEST !== '1' && 'BROWSER_TEST=1 が必要（npm run test:browser）',
+}, async () => {
   const browser = await chromium.connectOverCDP(process.env.CDP_URL ?? 'http://localhost:29229');
   const context = await browser.newContext({ viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   try {
