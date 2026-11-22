@@ -12,6 +12,7 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.worker.json",
     "cf-typegen": "wrangler types",
+    "check:release-age": "node scripts/check-release-age.mjs",
     "check": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": { "@fontsource-variable/dm-sans": "5.3.0", "@fontsource-variable/noto-sans-jp": "5.3.1", "@fontsource/dm-serif-text": "5.3.0", "@fontsource/noto-serif-jp": "5.3.1", "react": "19.3.1", "react-dom": "19.3.1", "hono": "4.13.20", "zod": "4.6.7" },
