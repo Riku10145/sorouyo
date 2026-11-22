@@ -100,7 +100,7 @@ button:disabled { cursor: default; }
 .cal-cell.sun .cal-num { color: var(--color-calendar-sun); } .cal-cell.sat .cal-num { color: var(--color-sat); }
 .cal-cell.outside .cal-num { color: #67746B; }
 .cal-cell.outside .pill { opacity: .7; }
-@media (width < 1024px) {
+@media (max-width: 1023.98px) {
   .cal-cell.outside { background: #F0F3ED; }
   .cal-cell.outside .cal-num { color: #626F66; }
 }
