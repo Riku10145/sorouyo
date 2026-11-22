@@ -235,12 +235,15 @@ button:disabled { cursor: default; }
   .month-number small { font-family: var(--font-serif); font-size: 30px; font-weight: 800; margin: 0; }
   .month-actions { gap: 8px; }
   .month-actions .ghost-btn { border-color: var(--color-line); background: var(--color-surface); padding: 0 14px; }
-  .calendar { border: 1px solid var(--color-line); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-surface); }
+  .calendar { border: 1px solid var(--color-line); border-radius: var(--radius-lg); background: var(--color-surface); }
   .cal-row { border-bottom: 1px solid var(--color-line-soft); }
   .cal-row:last-child { border-bottom: 0; }
-  .cal-head { background: #F4F6F1; }
+  .cal-head { background: #F4F6F1; border-radius: calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px) 0 0; }
   .cal-head span { padding: 6px 0; font-size: 12px; }
   .cal-cell { min-height: 128px; padding: 8px; align-items: stretch; text-align: left; border-left: 1px solid var(--color-line-soft); border-radius: 0 !important; }
+  .cal-cell:focus-visible { position: relative; z-index: 1; }
+  .cal-row:last-child .cal-cell:first-child { border-bottom-left-radius: calc(var(--radius-lg) - 1px) !important; }
+  .cal-row:last-child .cal-cell:last-child { border-bottom-right-radius: calc(var(--radius-lg) - 1px) !important; }
   .cal-cell:first-child { border-left: 0; }
   .cal-cell.outside { background: #F8F9F5; }
   .cal-num { align-self: flex-start; width: 26px; height: 26px; font-size: 14px; }
