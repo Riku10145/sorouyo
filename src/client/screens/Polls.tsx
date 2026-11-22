@@ -194,7 +194,7 @@ export function PollCreate() {
       </button>
     </div>}
 
-    {step === 'form' && <form className="groups-body" onSubmit={submit}>
+    {step === 'form' && <form className="groups-body" onSubmit={submit} noValidate>
       <button type="button" className="text-btn" onClick={() => { setError(null); setStep('dates'); }}><Icon name="chevronLeft" size={18} />日付を選び直す（{dates.length}日選択中）</button>
       <label className="field">予定名
         <input value={title} onChange={e => setTitle(e.target.value)} maxLength={60} placeholder="例：餃子の会、忘年会" autoFocus aria-invalid={!!error} />

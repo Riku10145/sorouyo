@@ -60,6 +60,8 @@ export function bestCandidate(poll: { candidates: readonly unknown[]; answers: r
 }
 
 export const shortDate = (key: string): string => `${Number(key.slice(5, 7))}/${Number(key.slice(8))}`;
+/** 開始時刻の表示。空なら終日 */
+export const timeLabel = (time: string): string => time ? `${time}〜` : '終日';
 export const weekday = (key: string): string => DAYS[dateFromKey(key).getDay()]!;
 export const dayTone = (key: string): 'sun' | 'sat' | undefined => {
   const day = dateFromKey(key).getDay();
