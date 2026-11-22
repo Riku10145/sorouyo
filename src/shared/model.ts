@@ -1,7 +1,6 @@
-import { z } from 'zod';
-
-export const voteSchema = z.enum(['yes', 'maybe', 'no']);
-export type Vote = z.infer<typeof voteSchema>;
+export const VOTE_VALUES = ['yes', 'maybe', 'no'] as const;
+export type Vote = (typeof VOTE_VALUES)[number];
+const isVote = (value: unknown): value is Vote => VOTE_VALUES.some(vote => vote === value);
 export const VOTES = [
   { value: 'yes', mark: '○', label: '行ける' },
   { value: 'maybe', mark: '△', label: '未定' },
@@ -38,8 +37,8 @@ export function shiftedMonth(month: string, direction: number): string {
 export function tally(poll: { answers: readonly { votes: readonly unknown[] }[] }, index: number): Record<Vote, number> {
   const result = { yes: 0, maybe: 0, no: 0 };
   for (const answer of poll.answers) {
-    const vote = voteSchema.safeParse(answer.votes[index]);
-    if (vote.success) result[vote.data]++;
+    const vote = answer.votes[index];
+    if (isVote(vote)) result[vote]++;
   }
   return result;
 }
