@@ -105,7 +105,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
     <Icon name="check" size={18} />{dateLabel(poll.candidates[confirmed]!.date)} {poll.candidates[confirmed]!.time}〜に決まりました。
   </p>;
   const expiredBanner = expired && confirmed === null && <p className="expired-note" role="status">
-    <Icon name="clock" size={18} />回答締切を過ぎました。回答は締め切られていますが、候補を選んで確定できます。
+    <Icon name="clock" size={18} />{canConfirm ? '回答締切を過ぎました。回答は締め切られていますが、候補を選んで確定できます。' : '回答締切を過ぎました。回答は締め切られています。'}
   </p>;
   const progress = <p className="progress"><span className="bars" aria-hidden="true">{poll.answers.map((_, i) => <i key={i} className={i < respondents ? 'on' : ''} />)}</span>{poll.answers.length}人中{respondents}人が回答</p>;
 
