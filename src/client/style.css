@@ -100,6 +100,10 @@ button:disabled { cursor: default; }
 .cal-cell.sun .cal-num { color: var(--color-calendar-sun); } .cal-cell.sat .cal-num { color: var(--color-sat); }
 .cal-cell.outside .cal-num { color: #67746B; }
 .cal-cell.outside .pill { opacity: .7; }
+@media (width < 1024px) {
+  .cal-cell.outside { background: #F0F3ED; }
+  .cal-cell.outside .cal-num { color: #626F66; }
+}
 .cal-cell[aria-current="date"] .cal-num { box-shadow: inset 0 0 0 1.5px var(--color-ink); }
 .cal-cell[aria-selected="true"] { background: #ECF3E9; border-radius: 10px; }
 .cal-cell[aria-selected="true"] .cal-num { background: var(--color-ink); color: #fff; }
