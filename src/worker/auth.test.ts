@@ -243,13 +243,38 @@ describe('guest', () => {
     expect(cookie).toContain('SameSite=Lax');
   });
 
-  test('an existing guest cookie is kept for the same browser', async () => {
+  test('a valid signed guest cookie is kept for the same browser', async () => {
     const app = testApp(fakeWorkos());
+    const first = await app.request('https://app.example/api/guest/session', { method: 'POST' });
+    const guestCookie = cookies(first, GUEST_COOKIE)[0]!.split(';')[0]!;
     const res = await app.request('https://app.example/api/guest/session', {
       method: 'POST',
-      headers: { cookie: `${GUEST_COOKIE}=guest-1` },
+      headers: { cookie: guestCookie },
     });
     expect(res.status).toBe(204);
     expect(cookies(res, GUEST_COOKIE)).toHaveLength(0);
+  });
+
+  test('a forged guest cookie is not adopted and is re-issued', async () => {
+    const app = testApp(fakeWorkos());
+    const res = await app.request('https://app.example/api/guest/session', {
+      method: 'POST',
+      headers: { cookie: `${GUEST_COOKIE}=victim-id.forged` },
+    });
+    const reissued = cookies(res, GUEST_COOKIE)[0]!;
+    expect(reissued).not.toContain('victim-id');
+    const subject = await (await app.request('https://app.example/probe/subject', {
+      headers: { cookie: `${GUEST_COOKIE}=victim-id.forged` },
+    })).json() as { guestId?: string };
+    expect(subject.guestId).toBeUndefined();
+  });
+
+  test('a cross-origin guest session POST is rejected', async () => {
+    const app = testApp(fakeWorkos());
+    const res = await app.request('https://app.example/api/guest/session', {
+      method: 'POST',
+      headers: { origin: 'https://evil.example' },
+    });
+    expect(res.status).toBe(403);
   });
 });

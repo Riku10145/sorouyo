@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { Context, Env as HonoEnv } from 'hono';
+import type { Context } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { WorkOS } from '@workos-inc/node';
 
@@ -92,6 +92,52 @@ export function authDeps(c: Context<{ Bindings: AuthEnv }>): AuthDeps | undefine
 
 const secure = (c: Context) => new URL(c.req.url).protocol === 'https:';
 
+// --- ゲストCookieの署名 -----------------------------------------------------
+// ゲストCookieは改ざんされると他者のguestIdを名乗れるので HMAC-SHA256 で署名する。
+// 鍵は WORKOS_COOKIE_PASSWORD を使い、認証未設定の環境ではインスタンスごとの乱数に
+// 退避する（再起動で古いCookieは無効になり、次回POSTで再発行される）。
+
+let fallbackGuestSecret: string | undefined;
+const guestSecret = (env: AuthEnv | undefined) =>
+  env?.WORKOS_COOKIE_PASSWORD && env.WORKOS_COOKIE_PASSWORD.length >= 32
+    ? env.WORKOS_COOKIE_PASSWORD
+    : (fallbackGuestSecret ??= crypto.randomUUID());
+
+const guestKeys = new Map<string, Promise<CryptoKey>>();
+const guestKey = (secret: string) => {
+  let key = guestKeys.get(secret);
+  if (!key) {
+    key = crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify'],
+    );
+    guestKeys.set(secret, key);
+  }
+  return key;
+};
+
+const b64u = (data: ArrayBuffer) =>
+  btoa(String.fromCharCode(...new Uint8Array(data))).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+
+const signGuestId = async (guestId: string, env: AuthEnv | undefined) => {
+  const signature = await crypto.subtle.sign('HMAC', await guestKey(guestSecret(env)), new TextEncoder().encode(guestId));
+  return `${guestId}.${b64u(signature)}`;
+};
+
+export const verifyGuestId = async (value: string | undefined, env: AuthEnv | undefined) => {
+  if (!value) return undefined;
+  const cut = value.lastIndexOf('.');
+  if (cut <= 0) return undefined;
+  const guestId = value.slice(0, cut);
+  const signature = Uint8Array.from(atob(value.slice(cut + 1).replaceAll('-', '+').replaceAll('_', '/')), ch => ch.charCodeAt(0));
+  try {
+    const ok = await crypto.subtle.verify('HMAC', await guestKey(guestSecret(env)), signature, new TextEncoder().encode(guestId));
+    return ok ? guestId : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 const checkOrigin = (c: Context): boolean => {
   const origin = c.req.header('origin');
   return !origin || origin === new URL(c.req.url).origin;
@@ -130,7 +176,7 @@ export async function resolveSubject(
 ): Promise<{ userId?: string; guestId?: string }> {
   const user = deps ? await resolveUser(c, deps) : null;
   if (user) return { userId: user.id };
-  const guestId = getCookie(c, GUEST_COOKIE);
+  const guestId = await verifyGuestId(getCookie(c, GUEST_COOKIE), c.env as AuthEnv | undefined);
   return guestId ? { guestId } : {};
 }
 
@@ -220,11 +266,12 @@ export function buildAuthRoutes(getDeps: GetAuthDeps) {
 
 export const authRoutes = buildAuthRoutes(authDeps);
 
-export const guestRoutes = new Hono<HonoEnv>()
-  .post('/session', (c) => {
+export const guestRoutes = new Hono<{ Bindings: AuthEnv }>()
+  .post('/session', async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
-    if (!getCookie(c, GUEST_COOKIE)) {
-      setCookie(c, GUEST_COOKIE, crypto.randomUUID(), {
+    const existing = await verifyGuestId(getCookie(c, GUEST_COOKIE), c.env);
+    if (!existing) {
+      setCookie(c, GUEST_COOKIE, await signGuestId(crypto.randomUUID(), c.env), {
         httpOnly: true,
         secure: secure(c),
         sameSite: 'Lax',

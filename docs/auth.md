@@ -5,7 +5,7 @@
 ## 方式（service-design.md の採用案どおり）
 
 - **主催者・グループメンバー**: WorkOS AuthKitのホスト画面でログインする。Workerが `/api/auth/login` で `state` を発行し、`/api/auth/callback` で一回限りの `state` Cookieを照合してから認可コードを交換する。WorkOS SDKで暗号化したセッションを `sorouyo_session` Cookie（Secure・HttpOnly・SameSite=Lax・30日）に保存する。アクセストークンが切れていたら `/api/auth/me` がSDKで更新してCookieを置き換える。別端末でも同じWorkOSアカウントでログインすれば同じ利用者に戻れる。アカウント識別はWorkOSの `(iss, sub)` で、管理権限の引き継ぎはログインした本人のアカウントに限る。
-- **リンク回答者（ゲスト）**: ログイン不要。`/r#<token>` を開くと回答画面が `POST /api/guest/session` を呼び、ブラウザごとの `sorouyo_guest` Cookie（Secure・HttpOnly・SameSite=Lax・1年）を確立する。AuthKitのログイン処理は呼ばない。トークンのハッシュ照合と回答の保存は [#3](https://github.com/Riku10145/sorouyo/issues/3)・[#28](https://github.com/Riku10145/sorouyo/issues/28) で接続する。
+- **リンク回答者（ゲスト）**: ログイン不要。`/r#<token>` を開くと回答画面が `POST /api/guest/session` を呼び、ブラウザごとの `sorouyo_guest` Cookie（Secure・HttpOnly・SameSite=Lax・1年・HMAC-SHA256署名付き）を確立する。署名鍵は `WORKOS_COOKIE_PASSWORD` を使い、認証未設定の環境ではインスタンスごとの乱数に退避する。AuthKitのログイン処理は呼ばない。トークンのハッシュ照合と回答の保存は [#3](https://github.com/Riku10145/sorouyo/issues/3)・[#28](https://github.com/Riku10145/sorouyo/issues/28) で接続する。
 
 ## API
 

@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { hc } from 'hono/client';
-import type { AppType } from '../../worker';
 import { answerError, dateLabel, dayTone, shortDate, weekday, type Vote } from '../../shared/model';
 import { findPoll, groupName, type Poll } from '../../shared/sample';
 import { Brand, GroupDot, Icon, InviteHero, VOTE_WORD, VoteMark, VotePicker } from '../design/ui';
 import { Envelope } from '../design/art';
+import { api } from '../api';
 
 function useHashToken() {
   const [token, setToken] = useState(window.location.hash.slice(1).trim());
@@ -17,8 +16,6 @@ function useHashToken() {
 }
 
 const deadlineText = (poll: Poll) => `${dateLabel(poll.deadline.date)}${poll.deadline.time}`;
-
-const api = hc<AppType>(window.location.origin);
 
 export function GuestFrame({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return <main className={`guest${wide ? ' guest-wide' : ''}`}>{children}</main>;

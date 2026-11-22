@@ -1,30 +1,13 @@
-import { useEffect, useState } from 'react';
-import type { hc } from 'hono/client';
-import type { AppType } from '../../worker';
+import { useState } from 'react';
 import { Brand, Icon } from '../design/ui';
 import { GuestFrame } from './GuestAnswer';
-
-type Api = ReturnType<typeof hc<AppType>>;
-type Me = { user: { id: string; email: string; firstName: string | null; lastName: string | null } };
+import { api, useMe, type Me } from '../api';
 
 const displayName = (me: Me) =>
   [me.user.lastName, me.user.firstName].filter(Boolean).join(' ') || me.user.email;
 
-function useMe(api: Api) {
-  const [me, setMe] = useState<Me | null | undefined>(undefined);
-  useEffect(() => {
-    let active = true;
-    api.api.auth.me.$get().then(async response => {
-      if (!active) return;
-      setMe(response.ok ? await response.json() as Me : null);
-    }).catch(() => { if (active) setMe(null); });
-    return () => { active = false; };
-  }, [api]);
-  return me;
-}
-
-export function Settings({ api }: { api: Api }) {
-  const me = useMe(api);
+export function Settings() {
+  const me = useMe();
   const [busy, setBusy] = useState(false);
   const logout = async () => {
     setBusy(true);
