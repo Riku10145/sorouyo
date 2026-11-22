@@ -71,11 +71,17 @@ const makeSubjectOf = (getDeps: GetAuthDeps): GetSubject => async (c) => {
 };
 
 async function ensureUser(c: C, user: { id: string; email: string; firstName?: string | null; lastName?: string | null }) {
+  const email = user.email ?? null;
   const name = [user.lastName, user.firstName].filter(Boolean).join(' ') || null;
+  const existing = await get<{ email: string | null; display_name: string | null }>(c.env.DB.prepare(
+    `SELECT email, display_name FROM users WHERE id = ?`
+  ).bind(user.id).first());
+  // メール・表示名に変化がなければ書き込まない（認証済みリクエストごとのupsertを避ける）
+  if (existing && existing.email === email && existing.display_name === name) return;
   await c.env.DB.prepare(
     `INSERT INTO users (id, email, display_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
      ON CONFLICT (id) DO UPDATE SET email = excluded.email, display_name = excluded.display_name, updated_at = excluded.updated_at`
-  ).bind(user.id, user.email ?? null, name, now(), now()).run();
+  ).bind(user.id, email, name, now(), now()).run();
 }
 
 /** 調整の作成者・メンバー・管理者をまとめて PollTarget にする。 */
@@ -151,7 +157,8 @@ async function writeAnswer(
   const savedVotes = await all<VoteRow>(c.env.DB.prepare(
     `SELECT v.* FROM votes v JOIN answers a ON a.id = v.answer_id WHERE a.poll_id = ? AND a.respondent_key = ?`
   ).bind(pollId, key).all());
-  return { saved: saved ?? null, savedVotes };
+  // 受付中でないと条件付き書き込みは0行になる。既存行が残っていても updated_at は今回の at にならない
+  return { saved: saved ?? null, savedVotes, wrote: saved !== null && saved.updated_at === at };
 }
 
 // --- バリデーション ----------------------------------------------------------
@@ -160,10 +167,11 @@ async function writeAnswer(
 const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const createGroupBody = z.object({ name: z.string().trim().min(1).max(40), color: colorSchema.nullish() });
 const joinBody = z.object({ token: z.string().min(1) });
+const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const createPollBody = z.object({
   title: z.string().trim().min(1).max(60),
   deadlineAt: z.iso.datetime().nullish(),
-  candidates: z.array(z.object({ date: z.iso.date(), time: z.string().regex(/^\d{2}:\d{2}$/).nullish() })).min(1).max(31),
+  candidates: z.array(z.object({ date: z.iso.date(), time: timeSchema.nullish() })).min(1).max(31),
 });
 const inviteBody = z.object({ token: z.string().min(1) });
 const answerBody = z.object({
@@ -174,7 +182,7 @@ const answerBody = z.object({
 });
 const confirmBody = z.object({ candidateId: z.string().min(1) });
 const eventBody = z.object({
-  date: z.iso.date(), time: z.string().regex(/^\d{2}:\d{2}$/).nullish(), title: z.string().trim().min(1).max(60),
+  date: z.iso.date(), time: timeSchema.nullish(), title: z.string().trim().min(1).max(60),
 });
 const monthQuery = /^\d{4}-\d{2}$/;
 
@@ -272,6 +280,8 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!invite || invite.purpose !== 'join' || !invite.group_id) {
       return c.json({ error: 'invite_invalid' } as const, 404);
     }
+    const group = await get<GroupRow>(c.env.DB.prepare(`SELECT id, name, color FROM groups WHERE id = ?`).bind(invite.group_id).first());
+    if (!group) return c.json({ error: 'invite_invalid' } as const, 404);
     const existing = await memberRole(c, invite.group_id, subject.userId);
     if (!existing) {
       await c.env.DB.prepare(
@@ -279,8 +289,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
          ON CONFLICT (group_id, user_id) DO NOTHING`
       ).bind(invite.group_id, subject.userId, now()).run();
     }
-    const group = await get<GroupRow>(c.env.DB.prepare(`SELECT id, name, color FROM groups WHERE id = ?`).bind(invite.group_id).first());
-    return c.json({ group: { ...group!, role: existing ?? 'member' }, already: existing !== undefined } as const, existing ? 200 : 201);
+    return c.json({ group: { ...group, role: existing ?? 'member' }, already: existing !== undefined } as const, existing ? 200 : 201);
   })
 
   // グループ詳細（メンバー以上）。メンバー一覧と、削除確認に出す件数を含める
@@ -456,7 +465,11 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
       get<{ display_name: string | null }>(c.env.DB.prepare(`SELECT display_name FROM users WHERE id = ?`).bind(poll.creator_id).first()),
     ]);
     const votesBy = new Map<string, Record<string, string>>();
-    for (const v of votes) (votesBy.get(v.respondent_key) ?? (votesBy.set(v.respondent_key, {}), votesBy.get(v.respondent_key)!))[v.candidate_id] = v.value;
+    for (const v of votes) {
+      let entry = votesBy.get(v.respondent_key);
+      if (!entry) votesBy.set(v.respondent_key, entry = {});
+      entry[v.candidate_id] = v.value;
+    }
     const myKey = subject.userId ? `u:${subject.userId}` : undefined;
     const tallyAllowed = can(subject, 'viewTally', target);
     return c.json({
@@ -667,11 +680,10 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const accepting = poll.status === 'open' && (!poll.deadline_at || poll.deadline_at > now());
     if (!accepting) return c.json({ error: 'closed' } as const, 410);
 
-    const { saved, savedVotes } = await writeAnswer(c, poll.id, key, ids, body.data.name, body.data.comment ?? null, votes);
-    if (!saved || (votes.length && !savedVotes.length)) {
-      if (!(poll.status === 'open' && (!poll.deadline_at || poll.deadline_at > now()))) return c.json({ error: 'closed' } as const, 410);
-      return c.json({ error: 'conflict' } as const, 409);
-    }
+    const { saved, savedVotes, wrote } = await writeAnswer(c, poll.id, key, ids, body.data.name, body.data.comment ?? null, votes);
+    // 確認と実行の間に締切・確定が入ると書き込みは0行。既存回答が残っていても受付終了を返す
+    if (!saved || !wrote) return c.json({ error: 'closed' } as const, 410);
+    if (votes.length && !savedVotes.length) return c.json({ error: 'conflict' } as const, 409);
     return c.json({
       answer: {
         id: saved.id,

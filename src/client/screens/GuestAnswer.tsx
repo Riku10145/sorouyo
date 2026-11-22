@@ -15,7 +15,7 @@ export function useHashToken() {
   return token;
 }
 
-const deadlineText = (poll: Poll) => poll.deadline.date === '1970-01-01' ? '未設定' : `${dateLabel(poll.deadline.date)}${poll.deadline.time}`;
+const deadlineText = (poll: Poll) => poll.deadline ? `${dateLabel(poll.deadline.date)}${poll.deadline.time}` : 'なし';
 
 export function GuestFrame({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return <main className={`guest${wide ? ' guest-wide' : ''}`}>{children}</main>;
@@ -72,7 +72,7 @@ function RemoteGuest({ token }: { token: string }) {
     title: result.title,
     group: { name: result.group.name, color: result.group.color ?? undefined },
     host: result.host ?? '幹事',
-    deadline: result.deadlineAt ? toJst(result.deadlineAt) : { date: '1970-01-01', time: '00:00' },
+    deadline: result.deadlineAt ? toJst(result.deadlineAt) : null,
     closed: !result.accepting,
     candidates: result.candidates.map(c => ({ id: c.id, date: c.date, time: c.startTime ?? '' })),
     answers: [],
@@ -109,6 +109,7 @@ function GuestForm({ poll, initial, onSubmit }: {
   const [sending, setSending] = useState(false);
   const [closed, setClosed] = useState(false);
   const [sendError, setSendError] = useState(false);
+  const [denied, setDenied] = useState(false);
   const form = useRef<HTMLFormElement>(null);
   const done = useRef<HTMLHeadingElement>(null);
   const nameMissing = error !== '' && votes.every(vote => vote !== null);
@@ -123,6 +124,7 @@ function GuestForm({ poll, initial, onSubmit }: {
           setSending(false);
           if (result === 'ok') setSent(true);
           else if (result === 'closed') setClosed(true);
+          else if (result === 'forbidden') setDenied(true);
           else setSendError(true);
         });
       return;
@@ -149,7 +151,7 @@ function GuestForm({ poll, initial, onSubmit }: {
       <div className="guest-side">
         <header className="guest-header"><Brand size={28} sub="日程調整" /></header>
         <InviteHero poll={poll} eyebrow={`${poll.host}さんからのお誘い`}>
-          <p className="hero-meta">{pollDot(poll)}{poll.group.name}<span className="m-only"><span aria-hidden="true">・</span>{poll.deadline.date === '1970-01-01' ? '締切なし' : <>締切 <span className="num">{shortDate(poll.deadline.date)} {poll.deadline.time}</span></>}</span></p>
+          <p className="hero-meta">{pollDot(poll)}{poll.group.name}<span className="m-only"><span aria-hidden="true">・</span>{poll.deadline ? <>締切 <span className="num">{shortDate(poll.deadline.date)} {poll.deadline.time}</span></> : '締切なし'}</span></p>
         </InviteHero>
         <p className="desk-only side-foot"><strong>回答締切　{deadlineText(poll)}</strong><span>アプリ・ログイン不要</span></p>
       </div>
@@ -163,6 +165,7 @@ function GuestForm({ poll, initial, onSubmit }: {
         <label className="field"><span>ひとこと（任意）</span><input value={comment} onChange={event => setComment(event.target.value)} placeholder="みんなに伝えておきたいこと" maxLength={100} /></label>
         {error && <p id="answer-error" className="form-error" role="alert">{error}</p>}
         {sendError && <p className="form-error" role="alert">送信に失敗しました。時間をおいて再度お試しください。</p>}
+        {denied && <p className="form-error" role="alert">ログイン中のアカウントではこの調整に回答できません。グループのメンバーになるか、ログアウトしてからお試しください。</p>}
         <button type="submit" className="primary-btn wide" disabled={sending}>{sending ? '送信中…' : '回答を送る'}</button>
         <p className="form-foot m-only">アプリ・ログイン不要で回答できます</p>
       </form>

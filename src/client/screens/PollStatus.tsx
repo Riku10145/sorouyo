@@ -42,7 +42,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
     title: remote.title,
     group: { name: remote.group.name, color: remote.group.color ?? undefined },
     host: remote.hostName ?? '幹事',
-    deadline: remote.deadlineAt ? toJst(remote.deadlineAt) : { date: '1970-01-01', time: '00:00' },
+    deadline: remote.deadlineAt ? toJst(remote.deadlineAt) : null,
     closed: remote.status === 'confirmed',
     candidates: remote.candidates.map(c => ({ id: c.id, date: c.date, time: c.startTime ?? '' })),
     answers: remote.answers.map(a => ({
@@ -66,7 +66,9 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
 }
 
 export function PollStatus({ poll, selectedDate, expired = false, canConfirm = true, onConfirm, onCopyLink, onAnswerLink }: {
-  poll: Poll; selectedDate: string; expired?: boolean; canConfirm?: boolean;
+  poll: Poll; selectedDate: string; expired?: boolean;
+  /** 確定権限がある操作者か（主催者のみ。メンバーには確定UIを出さない） */
+  canConfirm?: boolean;
   onConfirm?: (index: number) => Promise<boolean>;
   onCopyLink?: () => Promise<string>;
   onAnswerLink?: () => void;
@@ -94,8 +96,9 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   const confirm = async () => {
     if (confirmed !== null || confirming.current) return; // 確定後・確定処理中の再確定はさせない
     confirming.current = true;
-    const done = onConfirm ? await onConfirm(chosen) : true;
-    confirming.current = false;
+    let done = true;
+    try { done = onConfirm ? await onConfirm(chosen) : true; }
+    finally { confirming.current = false; }
     if (done) {
       setConfirmed(chosen);
       toast(`${dateLabel(candidate.date)}に確定しました。共有カレンダーに予定が載りました`);
@@ -122,7 +125,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
     </div>
     <InviteHero poll={poll} eyebrow={`${poll.group.name}の日程調整`}>
       <span className="m-only">{progress}</span>
-      <p className="desk-only hero-meta">{poll.answers.length ? `${poll.answers.length}人中${respondents}人が回答` : 'まだ回答がありません'}<span aria-hidden="true">・</span>{poll.deadline.date === '1970-01-01' ? '回答締切なし' : <>回答締切 {dateLabel(poll.deadline.date)}{poll.deadline.time}</>}</p>
+      <p className="desk-only hero-meta">{poll.answers.length ? `${poll.answers.length}人中${respondents}人が回答` : 'まだ回答がありません'}<span aria-hidden="true">・</span>回答締切 {poll.deadline ? `${dateLabel(poll.deadline.date)}${poll.deadline.time}` : 'なし'}</p>
     </InviteHero>
     {confirmedBanner}
     {expiredBanner}

@@ -216,6 +216,11 @@ describe('data', () => {
       expect([401, 403]).toContain((await req(app, db, `/api/polls/${pollId}/invite`, { method: 'POST', headers: { cookie } })).status);
       expect([401, 403]).toContain((await req(app, db, `/api/groups/${groupId}/invites`, { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: '{}' })).status);
     }
+    // ログイン済みの非メンバーは有効なトークンがあっても回答できない（リンク回答者はゲスト扱い）
+    expect((await post(app, db, '/api/invite/answer', {
+      token, name: '他者', votes: [{ candidateId: 'x', value: 'yes' }],
+    }, other)).status).toBe(403);
+
     // 悪いトークンは404
     expect((await post(app, db, '/api/invite', { token: 'bad' })).status).toBe(404);
 

@@ -177,7 +177,7 @@ function AddEventSheet({ groups, date, onClose, onCreated }: {
 }
 
 function RemoteHome({ today, initialDate }: { today: string; initialDate: string }) {
-  const [groups, setGroups] = useState<GroupInfo[] | null>(null);
+  const [groups, setGroups] = useState<GroupInfo[] | 'error' | null>(null);
   const [months, setMonths] = useState<Map<string, ViewEvent[]>>(new Map());
   const [viewMonth, setViewMonth] = useState(initialDate.slice(0, 7));
   const [addDate, setAddDate] = useState<string | null>(null);
@@ -186,7 +186,9 @@ function RemoteHome({ today, initialDate }: { today: string; initialDate: string
   const loadMonth = async (month: string, refresh = false) => {
     if (!refresh && cache.current.has(month)) return;
     cache.current.set(month, []); // 取得中は空でマークし、重複fetchを防ぐ
-    const events = await fetchCalendar(month);
+    const events = await fetchCalendar(month).catch(() => null);
+    // 失敗はキャッシュしない（空が確定扱いになりリロードまで戻らないのを防ぐ）
+    if (events === null) { cache.current.delete(month); return; }
     cache.current.set(month, events.map(toView));
     setMonths(new Map(cache.current));
   };
@@ -194,13 +196,17 @@ function RemoteHome({ today, initialDate }: { today: string; initialDate: string
   useEffect(() => {
     void (async () => {
       const [list] = await Promise.all([fetchGroups(), loadMonth(initialDate.slice(0, 7))]);
-      setGroups(list ?? []);
+      // 取得失敗を「0件」と誤表示しない（グループがある人に空の案内を出さない）
+      setGroups(list ?? 'error');
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (groups === null) {
     return <div className="app-shell"><main className="app-main"><p className="loading-note">読み込み中…</p></main></div>;
+  }
+  if (groups === 'error') {
+    return <div className="app-shell"><main className="app-main"><p className="loading-note">読み込めませんでした。時間をおいて再度お試しください。</p></main></div>;
   }
 
   if (groups.length === 0) {

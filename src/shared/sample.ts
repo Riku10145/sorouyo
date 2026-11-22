@@ -42,7 +42,7 @@ export type Poll = {
   title: string;
   group: PollGroup;
   host: string;
-  deadline: { date: string; time: string };
+  deadline: { date: string; time: string } | null;
   closed: boolean;
   candidates: readonly Candidate[];
   answers: readonly PollAnswer[];

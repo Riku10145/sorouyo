@@ -250,7 +250,6 @@ button:disabled { cursor: default; }
   .matrix-date strong { font-size: 16px; }
   .matrix-date .num { font-size: 12px; color: var(--color-muted); }
   .matrix-date[aria-pressed="true"] { background: #F1F6EE; }
-  .chip-soft { padding: 1px 8px; border-radius: 999px; background: var(--color-primary-soft); font-size: 11px; font-weight: 700; }
   .matrix tr.you { background: var(--color-primary-soft); }
   .confirm-bar { position: static; display: flex; align-items: flex-end; justify-content: space-between; padding: 20px 0 0; background: none; }
   .confirm-bar .wide { width: auto; min-height: 46px; padding: 0 18px; font-size: 14px; }

@@ -38,7 +38,7 @@ CREATE INDEX polls_group ON polls(group_id);
 CREATE TABLE candidates (
   id TEXT PRIMARY KEY,
   poll_id TEXT NOT NULL REFERENCES polls(id),
-  position INTEGER NOT NULL,        -- 並び順。票は候候補IDで紐づくので並べ替えても対応が変わらない
+  position INTEGER NOT NULL,        -- 並び順。票は候補IDで紐づくので並べ替えても対応が変わらない
   date TEXT NOT NULL,
   start_time TEXT,
   UNIQUE (poll_id, position)

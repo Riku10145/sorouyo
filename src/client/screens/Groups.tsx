@@ -50,12 +50,12 @@ export function GroupForm({ initial, submitLabel, onSubmit, onCancel }: {
 /** /groups グループ一覧と作成 */
 export function Groups() {
   const me = useMe();
-  const [groups, setGroups] = useState<GroupInfo[] | null>(null);
+  const [groups, setGroups] = useState<GroupInfo[] | 'error' | null>(null);
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (!me) return;
-    void fetchGroups().then(list => setGroups(list ?? []));
+    void fetchGroups().then(list => setGroups(list ?? 'error'));
   }, [me]);
 
   if (me === undefined) return null;
@@ -69,7 +69,8 @@ export function Groups() {
     <header className="m-header"><Brand /><a className="text-btn" href="/settings"><Icon name="settings" size={20} />設定</a></header>
     <h1 className="page-title">グループ</h1>
     <div className="groups-body">
-      {groups === null ? <p className="loading-note">読み込み中…</p> : <>
+      {groups === 'error' ? <p className="form-error" role="alert">読み込めませんでした。時間をおいて再度お試しください。</p>
+        : groups === null ? <p className="loading-note">読み込み中…</p> : <>
         {groups.length === 0 && !creating && <section className="empty-hero">
           <h2>まだグループがありません</h2>
           <p>家族や仲間ごとにグループを作ると、予定が色分けされて見やすくなります。</p>
@@ -110,10 +111,10 @@ export function GroupDetail({ id, selectedDate }: { id: string; selectedDate: st
   useEffect(() => {
     if (!me) return;
     let active = true;
-    fetchGroup(id).then(({ status, detail }) => {
+    fetchGroup(id).then(({ detail }) => {
       if (!active) return;
       setDetail(detail ?? 'denied');
-    });
+    }).catch(() => { if (active) setDetail('denied'); });
     return () => { active = false; };
   }, [id, me]);
 
