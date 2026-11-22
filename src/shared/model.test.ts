@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { dateKey, dateFromKey, validDate, dateLabel, monthCells, shiftedMonth, DAYS, VOTES, tally, voteSchema } from './model';
+import { dateKey, dateFromKey, validDate, dateLabel, monthCells, shiftedMonth, DAYS, VOTES, tally } from './model';
 
 test('月カレンダーは日曜から土曜までを表示し、年をまたいで移動できる', () => {
   const november = monthCells('2026-11');
@@ -33,9 +33,7 @@ test('○△×を集計し、未回答・不正な回答は数えない', () => 
   expect(tally({ answers }, 1)).toEqual({ yes: 3, maybe: 0, no: 0 });
   expect(tally({ answers }, 0)).toEqual({ yes: 1, maybe: 1, no: 1 });
   expect(tally({ answers: [] }, 0)).toEqual({ yes: 0, maybe: 0, no: 0 });
-  expect(tally({ answers: [{ votes: [''] }, { votes: ['invalid'] }, { votes: [] }] }, 0)).toEqual({ yes: 0, maybe: 0, no: 0 });
+  expect(tally({ answers: ['', 'invalid', null, undefined, 0, {}, 'toString', '__proto__'].map(vote => ({ votes: [vote] })) }, 0)).toEqual({ yes: 0, maybe: 0, no: 0 });
   expect(tally({ answers }, 99)).toEqual({ yes: 0, maybe: 0, no: 0 });
   expect(VOTES.map(({ mark }) => mark)).toEqual(['○', '△', '×']);
-  for (const { value } of VOTES) expect(voteSchema.parse(value)).toBe(value);
-  expect(voteSchema.safeParse('invalid').success).toBe(false);
 });
