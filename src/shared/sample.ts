@@ -35,21 +35,24 @@ export const SAMPLE_EVENTS: readonly CalendarEvent[] = [
   { date: '2026-12-02', title: '朝ヨガ', group: 'pair' },
 ];
 
-export type Candidate = { date: string; time: string };
+export type PollGroup = { name: string; className?: GroupId; color?: string };
+export type Candidate = { id?: string; date: string; time: string };
 export type Poll = {
   token: string;
   title: string;
-  group: GroupId;
+  group: PollGroup;
   host: string;
   deadline: { date: string; time: string };
   closed: boolean;
   candidates: readonly Candidate[];
   answers: readonly PollAnswer[];
+  /** 確定した候補のインデックス（実データのみ。サンプルは closed だけを使う） */
+  confirmedIndex?: number | null;
 };
 
 const gyoza = {
   title: '餃子の会',
-  group: 'friends',
+  group: { name: 'いつメン', className: 'friends' },
   host: 'たろう',
   deadline: { date: '2026-11-21', time: '21:00' },
   candidates: [

@@ -138,10 +138,27 @@ export const verifyGuestId = async (value: string | undefined, env: AuthEnv | un
   }
 };
 
-const checkOrigin = (c: Context): boolean => {
+export const checkOrigin = (c: Context): boolean => {
   const origin = c.req.header('origin');
   return !origin || origin === new URL(c.req.url).origin;
 };
+
+const guestCookieOptions = (c: Context) => ({
+  httpOnly: true,
+  secure: secure(c),
+  sameSite: 'Lax' as const,
+  path: '/',
+  maxAge: 60 * 60 * 24 * 365,
+});
+
+/** ゲスト用Cookieを確立してguestIdを返す。署名の有効な既存Cookieがあれば再利用する。 */
+export async function ensureGuest(c: Context): Promise<string> {
+  const existing = await verifyGuestId(getCookie(c, GUEST_COOKIE), c.env as AuthEnv | undefined);
+  if (existing) return existing;
+  const guestId = crypto.randomUUID();
+  setCookie(c, GUEST_COOKIE, await signGuestId(guestId, c.env as AuthEnv | undefined), guestCookieOptions(c));
+  return guestId;
+}
 
 /**
  * セッションCookieを検証してログイン中の利用者を返す。期限切れはSDKで更新し、
@@ -269,15 +286,6 @@ export const authRoutes = buildAuthRoutes(authDeps);
 export const guestRoutes = new Hono<{ Bindings: AuthEnv }>()
   .post('/session', async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
-    const existing = await verifyGuestId(getCookie(c, GUEST_COOKIE), c.env);
-    if (!existing) {
-      setCookie(c, GUEST_COOKIE, await signGuestId(crypto.randomUUID(), c.env), {
-        httpOnly: true,
-        secure: secure(c),
-        sameSite: 'Lax',
-        path: '/',
-        maxAge: 60 * 60 * 24 * 365,
-      });
-    }
+    await ensureGuest(c);
     return c.body(null, 204);
   });

@@ -8,7 +8,7 @@ import { validDate } from '../shared/model';
 import { SAMPLE_SELECTED_DATE, findPoll } from '../shared/sample';
 import { Toaster } from './design/ui';
 import { Home, todayInTokyo } from './screens/Home';
-import { PollStatus } from './screens/PollStatus';
+import { PollStatus, RemotePollStatus } from './screens/PollStatus';
 import { GuestAnswer } from './screens/GuestAnswer';
 import { Settings } from './screens/Settings';
 import { api } from './api';
@@ -21,8 +21,12 @@ function Screen() {
   const selected = validDate(requested) ? requested : today;
   if (pathname === '/r' || pathname === '/r/') return <GuestAnswer />;
   if (pathname === '/settings' || pathname === '/settings/') return <Settings />;
-  const poll = findPoll(pathname.match(/^\/polls\/([\w-]+)\/?$/)?.[1] ?? '');
-  if (poll) return <PollStatus poll={poll} selectedDate={validDate(requested) ? requested : SAMPLE_SELECTED_DATE} />;
+  const pollId = pathname.match(/^\/polls\/([\w-]+)\/?$/)?.[1];
+  if (pollId) {
+    const poll = findPoll(pollId);
+    if (poll) return <PollStatus poll={poll} selectedDate={validDate(requested) ? requested : SAMPLE_SELECTED_DATE} />;
+    return <RemotePollStatus id={pollId} selectedDate={selected} />;
+  }
   return <Home today={today} initialDate={selected} />;
 }
 
