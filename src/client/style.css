@@ -90,15 +90,15 @@ button:disabled { cursor: default; }
 .month-number small { font-family: var(--font-sans); font-size: 16px; font-weight: 700; letter-spacing: 0; margin-left: 3px; }
 .month-art { align-self: flex-start; }
 .month-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
-.calendar { display: grid; }
+.calendar { --color-calendar-sun: #AC5044; display: grid; }
 .cal-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-bottom: 1px solid var(--color-line-soft); }
 .cal-head { border-bottom-color: var(--color-line); }
 .cal-head span { padding-bottom: 6px; text-align: center; font-size: 12px; font-weight: 600; color: var(--color-muted); }
-.cal-head .sun { color: var(--color-sun); } .cal-head .sat { color: var(--color-sat); }
+.cal-head .sun { color: var(--color-calendar-sun); } .cal-head .sat { color: var(--color-sat); }
 .cal-cell { display: flex; flex-direction: column; align-items: stretch; gap: 2px; min-height: 50px; padding: 4px 2px 3px; text-align: center; color: var(--color-text); }
 .cal-num { align-self: center; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 14px; font-family: var(--font-num); font-size: 15px; font-weight: 600; color: var(--color-ink); }
-.cal-cell.sun .cal-num { color: var(--color-sun); } .cal-cell.sat .cal-num { color: var(--color-sat); }
-.cal-cell.outside .cal-num { color: #A3ADA6; }
+.cal-cell.sun .cal-num { color: var(--color-calendar-sun); } .cal-cell.sat .cal-num { color: var(--color-sat); }
+.cal-cell.outside .cal-num { color: #67746B; }
 .cal-cell.outside .pill { opacity: .7; }
 .cal-cell[aria-current="date"] .cal-num { box-shadow: inset 0 0 0 1.5px var(--color-ink); }
 .cal-cell[aria-selected="true"] { background: #ECF3E9; border-radius: 10px; }
