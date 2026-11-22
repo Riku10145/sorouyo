@@ -17,8 +17,10 @@ function collectPackages(lock) {
     if (!name || !entry.version || !entry.resolved?.startsWith('https://registry.npmjs.org/')) {
       throw new Error(`Cannot verify registry release age for ${path}`);
     }
-    if (!packages.has(name)) packages.set(name, new Set());
-    packages.get(name).add(entry.version);
+    if (!packages.has(name)) packages.set(name, new Map());
+    const versions = packages.get(name);
+    if (!versions.has(entry.version)) versions.set(entry.version, new Set());
+    versions.get(entry.version).add(entry.integrity);
   }
 
   return packages;
@@ -28,7 +30,7 @@ export async function checkReleaseAge(lock, { baseLock, fetchMetadata = fetch, n
   const packages = collectPackages(lock);
   const basePackages = baseLock ? collectPackages(baseLock) : new Map();
   const queue = [...packages].map(([name, versions]) => [
-    name, new Set([...versions].filter((version) => !basePackages.get(name)?.has(version))),
+    name, new Map([...versions].filter(([version]) => !basePackages.get(name)?.has(version))),
   ]).filter(([, versions]) => versions.size);
   const failures = [];
   let checked = 0;
@@ -42,7 +44,18 @@ export async function checkReleaseAge(lock, { baseLock, fetchMetadata = fetch, n
         });
         if (!response.ok) throw new Error(`registry returned HTTP ${response.status}`);
         const metadata = await response.json();
-        for (const version of versions) {
+        for (const [version, integrities] of versions) {
+          const registryIntegrity = metadata.versions?.[version]?.dist?.integrity;
+          if (integrities.size > 1) {
+            failures.push(`${name}@${version}: conflicting lockfile integrity values`);
+          }
+          if ([...integrities].some((integrity) => typeof integrity !== 'string' || !integrity.trim())) {
+            failures.push(`${name}@${version}: missing lockfile integrity`);
+          } else if (typeof registryIntegrity !== 'string' || !registryIntegrity.trim()) {
+            failures.push(`${name}@${version}: missing registry dist.integrity`);
+          } else if ([...integrities].some((integrity) => integrity !== registryIntegrity)) {
+            failures.push(`${name}@${version}: lockfile integrity does not match registry dist.integrity`);
+          }
           const published = metadata.time?.[version];
           const timestamp = typeof published === 'string' ? Date.parse(published) : NaN;
           if (!Number.isFinite(timestamp)) {
@@ -53,7 +66,7 @@ export async function checkReleaseAge(lock, { baseLock, fetchMetadata = fetch, n
           checked++;
         }
       } catch (error) {
-        failures.push(`${name}: could not verify ${[...versions].join(', ')}: ${error.message}`);
+        failures.push(`${name}: could not verify ${[...versions.keys()].join(', ')}: ${error.message}`);
       }
     }
   }));

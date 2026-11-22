@@ -3,15 +3,20 @@ import test from 'node:test';
 import { checkReleaseAge } from './check-release-age.mjs';
 
 const now = Date.parse('2026-11-22T00:00:00Z');
+const integrity = 'sha512-test';
+const metadata = (time) => ({
+  time,
+  versions: Object.fromEntries(Object.keys(time).map((version) => [version, { dist: { integrity } }])),
+});
 const lock = {
   lockfileVersion: 3,
   packages: {
     '': { name: 'root' },
-    'node_modules/alias': { name: '@scope/example', version: '1.0.0', resolved: 'https://registry.npmjs.org/example.tgz' },
-    'node_modules/parent/node_modules/example': { version: '2.0.0', resolved: 'https://registry.npmjs.org/example.tgz' },
+    'node_modules/alias': { name: '@scope/example', version: '1.0.0', integrity, resolved: 'https://registry.npmjs.org/example.tgz' },
+    'node_modules/parent/node_modules/example': { version: '2.0.0', integrity, resolved: 'https://registry.npmjs.org/example.tgz' },
   },
 };
-const response = (time) => async () => ({ ok: true, json: async () => ({ time }) });
+const response = (time) => async () => ({ ok: true, json: async () => metadata(time) });
 
 test('checks aliases and nested dependencies, accepting the seven-day boundary', async () => {
   const urls = [];
@@ -19,7 +24,7 @@ test('checks aliases and nested dependencies, accepting the seven-day boundary',
     now,
     fetchMetadata: async (url) => {
       urls.push(url);
-      return { ok: true, json: async () => ({ time: { '1.0.0': '2026-11-15T00:00:00Z', '2.0.0': '2026-11-01T00:00:00Z' } }) };
+      return { ok: true, json: async () => metadata({ '1.0.0': '2026-11-15T00:00:00Z', '2.0.0': '2026-11-01T00:00:00Z' }) };
     },
   });
   assert.deepEqual(result, { checked: 2, failures: [] });
@@ -34,7 +39,7 @@ test('skips bundled entries without resolved URLs, but still checks the parent',
   const bundledLock = {
     lockfileVersion: 3,
     packages: {
-      'node_modules/parent': { version: '1.0.0', resolved: 'https://registry.npmjs.org/parent.tgz' },
+      'node_modules/parent': { version: '1.0.0', integrity, resolved: 'https://registry.npmjs.org/parent.tgz' },
       'node_modules/parent/node_modules/bundled': { version: '1.0.0', inBundle: true },
     },
   };
@@ -43,7 +48,7 @@ test('skips bundled entries without resolved URLs, but still checks the parent',
     now,
     fetchMetadata: async (url) => {
       urls.push(url);
-      return { ok: true, json: async () => ({ time: { '1.0.0': '2026-11-01T00:00:00Z' } }) };
+      return { ok: true, json: async () => metadata({ '1.0.0': '2026-11-01T00:00:00Z' }) };
     },
   });
   assert.deepEqual(urls, ['https://registry.npmjs.org/parent']);
@@ -61,7 +66,7 @@ test('base filtering ignores existing versions regardless of install path', asyn
     now,
     fetchMetadata: async (url) => {
       urls.push(url);
-      return { ok: true, json: async () => ({ time: { '2.0.0': '2026-11-21T00:00:00Z' } }) };
+      return { ok: true, json: async () => metadata({ '2.0.0': '2026-11-21T00:00:00Z' }) };
     },
   });
   assert.equal(result.checked, 1);
@@ -89,6 +94,39 @@ test('reports recent, future, missing and invalid publication times', async () =
   }
 });
 
+test('rejects missing, mismatched and conflicting lockfile integrities', async () => {
+  for (const value of [undefined, '', 'sha512-tampered']) {
+    const tampered = structuredClone(lock);
+    tampered.packages['node_modules/alias'].integrity = value;
+    const result = await checkReleaseAge(tampered, {
+      now, fetchMetadata: response({ '1.0.0': '2026-11-01T00:00:00Z', '2.0.0': '2026-11-01T00:00:00Z' }),
+    });
+    assert.equal(result.failures.length, 1);
+    assert.match(result.failures[0], /integrity/);
+  }
+  const conflicting = structuredClone(lock);
+  conflicting.packages['node_modules/nested/node_modules/alias'] = {
+    ...conflicting.packages['node_modules/alias'], integrity: 'sha512-other',
+  };
+  const result = await checkReleaseAge(conflicting, {
+    now, fetchMetadata: response({ '1.0.0': '2026-11-01T00:00:00Z', '2.0.0': '2026-11-01T00:00:00Z' }),
+  });
+  assert.ok(result.failures.some((failure) => /conflicting lockfile integrity/.test(failure)));
+});
+
+test('fails closed when registry integrity is missing or empty', async () => {
+  for (const versions of [undefined, {}, { '1.0.0': { dist: {} } }, { '1.0.0': { dist: { integrity: '' } } }]) {
+    const result = await checkReleaseAge(lock, {
+      now,
+      fetchMetadata: async () => ({ ok: true, json: async () => ({
+        time: { '1.0.0': '2026-11-01T00:00:00Z', '2.0.0': '2026-11-01T00:00:00Z' }, versions,
+      }) }),
+    });
+    assert.equal(result.failures.length, 2);
+    assert.ok(result.failures.every((failure) => /missing registry dist.integrity/.test(failure)));
+  }
+});
+
 test('fails closed for HTTP, network and JSON errors', async () => {
   for (const fetchMetadata of [
     async () => ({ ok: false, status: 503 }),
@@ -108,7 +146,7 @@ test('rejects unsupported lockfiles and unverifiable sources', async () => {
 
 test('limits concurrent requests and deduplicates name/version pairs', async () => {
   const packages = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [
-    `node_modules/package-${i}`, { version: '1.0.0', resolved: 'https://registry.npmjs.org/package.tgz' },
+    `node_modules/package-${i}`, { version: '1.0.0', integrity, resolved: 'https://registry.npmjs.org/package.tgz' },
   ]));
   packages['node_modules/nested/node_modules/package-0'] = packages['node_modules/package-0'];
   let active = 0;
@@ -119,7 +157,7 @@ test('limits concurrent requests and deduplicates name/version pairs', async () 
       peak = Math.max(peak, ++active);
       await new Promise((resolve) => setImmediate(resolve));
       active--;
-      return { ok: true, json: async () => ({ time: { '1.0.0': '2026-11-01T00:00:00Z' } }) };
+      return { ok: true, json: async () => metadata({ '1.0.0': '2026-11-01T00:00:00Z' }) };
     },
   });
   assert.equal(peak, 8);
