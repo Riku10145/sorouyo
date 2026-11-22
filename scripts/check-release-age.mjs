@@ -1,9 +1,11 @@
 import { readFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { parseArgs, promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
 const minimumAge = 7 * 24 * 60 * 60 * 1000;
 
-export async function checkReleaseAge(lock, { fetchMetadata = fetch, now = Date.now() } = {}) {
+function collectPackages(lock) {
   if (!lock.packages || ![2, 3].includes(lock.lockfileVersion)) {
     throw new Error('Expected a package-lock.json with lockfileVersion 2 or 3 and packages');
   }
@@ -19,7 +21,15 @@ export async function checkReleaseAge(lock, { fetchMetadata = fetch, now = Date.
     packages.get(name).add(entry.version);
   }
 
-  const queue = [...packages];
+  return packages;
+}
+
+export async function checkReleaseAge(lock, { baseLock, fetchMetadata = fetch, now = Date.now() } = {}) {
+  const packages = collectPackages(lock);
+  const basePackages = baseLock ? collectPackages(baseLock) : new Map();
+  const queue = [...packages].map(([name, versions]) => [
+    name, new Set([...versions].filter((version) => !basePackages.get(name)?.has(version))),
+  ]).filter(([, versions]) => versions.size);
   const failures = [];
   let checked = 0;
   await Promise.all(Array.from({ length: Math.min(8, queue.length) }, async () => {
@@ -52,8 +62,24 @@ export async function checkReleaseAge(lock, { fetchMetadata = fetch, now = Date.
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const lock = JSON.parse(await readFile(process.argv[2] ?? 'package-lock.json', 'utf8'));
-    const { checked, failures } = await checkReleaseAge(lock);
+    const { values, positionals } = parseArgs({
+      options: { base: { type: 'string' } },
+      allowPositionals: true,
+    });
+    if (positionals.length > 1) throw new Error('Usage: check-release-age.mjs [--base <git-ref>] [lockfile-path]');
+    const lock = JSON.parse(await readFile(positionals[0] ?? 'package-lock.json', 'utf8'));
+    let baseLock;
+    if (values.base !== undefined) {
+      const git = promisify(execFile);
+      const { stdout: commit } = await git('git', ['rev-parse', '--verify', '--end-of-options', `${values.base}^{commit}`]);
+      const ref = commit.trim();
+      const { stdout: path } = await git('git', ['ls-tree', '--name-only', ref, '--', 'package-lock.json']);
+      if (path.trim()) {
+        const { stdout } = await git('git', ['show', `${ref}:package-lock.json`], { maxBuffer: 20 * 1024 * 1024 });
+        baseLock = JSON.parse(stdout);
+      }
+    }
+    const { checked, failures } = await checkReleaseAge(lock, { baseLock });
     if (failures.length) {
       console.error(`Release-age check failed:\n${failures.map((failure) => `- ${failure}`).join('\n')}`);
       process.exitCode = 1;

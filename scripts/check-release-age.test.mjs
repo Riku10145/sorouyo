@@ -30,6 +30,38 @@ test('empty lockfile requires no requests', async () => {
   assert.deepEqual(await checkReleaseAge({ lockfileVersion: 3, packages: {} }), { checked: 0, failures: [] });
 });
 
+test('base filtering ignores existing versions regardless of install path', async () => {
+  const baseLock = structuredClone(lock);
+  baseLock.packages['node_modules/moved'] = baseLock.packages['node_modules/alias'];
+  delete baseLock.packages['node_modules/alias'];
+  delete baseLock.packages['node_modules/parent/node_modules/example'];
+  const urls = [];
+  const result = await checkReleaseAge(lock, {
+    baseLock,
+    now,
+    fetchMetadata: async (url) => {
+      urls.push(url);
+      return { ok: true, json: async () => ({ time: { '2.0.0': '2026-11-21T00:00:00Z' } }) };
+    },
+  });
+  assert.equal(result.checked, 1);
+  assert.deepEqual(urls, ['https://registry.npmjs.org/example']);
+  assert.match(result.failures[0], /example@2.0.0/);
+});
+
+test('identical base skips all requests; empty base checks all versions', async () => {
+  assert.deepEqual(await checkReleaseAge(lock, {
+    baseLock: lock,
+    fetchMetadata: async () => { throw new Error('unexpected request'); },
+  }), { checked: 0, failures: [] });
+  const result = await checkReleaseAge(lock, {
+    baseLock: { lockfileVersion: 3, packages: {} }, now,
+    fetchMetadata: response({ '1.0.0': '2026-11-01T00:00:00Z', '2.0.0': '2026-11-01T00:00:00Z' }),
+  });
+  assert.deepEqual(result, { checked: 2, failures: [] });
+  await assert.rejects(checkReleaseAge(lock, { baseLock: {} }), /lockfileVersion/);
+});
+
 test('reports recent, future, missing and invalid publication times', async () => {
   for (const published of ['2026-11-21T00:00:00Z', '2026-11-23T00:00:00Z', undefined, 'invalid']) {
     const result = await checkReleaseAge(lock, { now, fetchMetadata: response({ '1.0.0': published, '2.0.0': published }) });
