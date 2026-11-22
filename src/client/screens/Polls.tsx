@@ -42,7 +42,7 @@ export function Polls() {
       const [groupList, pollList] = await Promise.all([fetchGroups(), fetchPolls()]);
       setGroups(groupList ?? []);
       setPolls(pollList.polls ?? []);
-    })();
+    })().catch(() => { setGroups([]); setPolls([]); }); // 取得失敗は空表示に倒す
   }, [me]);
 
   if (me === undefined) return null;
@@ -117,7 +117,6 @@ export function PollCreate() {
     </AppShell>;
   }
 
-  const displayGroups: DisplayGroup[] = groups!.map(g => ({ id: g.id, name: g.name, color: g.color }));
   const selectedGroup = groups!.find(g => g.id === (groupId || groups![0]!.id))!;
   const today = todayInTokyo();
   const dates = [...picked].sort();
@@ -196,7 +195,7 @@ export function PollCreate() {
     </div>}
 
     {step === 'form' && <form className="groups-body" onSubmit={submit}>
-      <button type="button" className="text-btn" onClick={() => setStep('dates')}><Icon name="chevronLeft" size={18} />日付を選び直す（{dates.length}日選択中）</button>
+      <button type="button" className="text-btn" onClick={() => { setError(null); setStep('dates'); }}><Icon name="chevronLeft" size={18} />日付を選び直す（{dates.length}日選択中）</button>
       <label className="field">予定名
         <input value={title} onChange={e => setTitle(e.target.value)} maxLength={60} placeholder="例：餃子の会、忘年会" autoFocus aria-invalid={!!error} />
       </label>
