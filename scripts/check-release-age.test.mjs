@@ -30,6 +30,26 @@ test('empty lockfile requires no requests', async () => {
   assert.deepEqual(await checkReleaseAge({ lockfileVersion: 3, packages: {} }), { checked: 0, failures: [] });
 });
 
+test('skips bundled entries without resolved URLs, but still checks the parent', async () => {
+  const bundledLock = {
+    lockfileVersion: 3,
+    packages: {
+      'node_modules/parent': { version: '1.0.0', resolved: 'https://registry.npmjs.org/parent.tgz' },
+      'node_modules/parent/node_modules/bundled': { version: '1.0.0', inBundle: true },
+    },
+  };
+  const urls = [];
+  const result = await checkReleaseAge(bundledLock, {
+    now,
+    fetchMetadata: async (url) => {
+      urls.push(url);
+      return { ok: true, json: async () => ({ time: { '1.0.0': '2026-11-01T00:00:00Z' } }) };
+    },
+  });
+  assert.deepEqual(urls, ['https://registry.npmjs.org/parent']);
+  assert.deepEqual(result, { checked: 1, failures: [] });
+});
+
 test('base filtering ignores existing versions regardless of install path', async () => {
   const baseLock = structuredClone(lock);
   baseLock.packages['node_modules/moved'] = baseLock.packages['node_modules/alias'];

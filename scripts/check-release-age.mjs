@@ -12,7 +12,7 @@ function collectPackages(lock) {
 
   const packages = new Map();
   for (const [path, entry] of Object.entries(lock.packages)) {
-    if (!path || entry.link) continue;
+    if (!path || entry.link || entry.inBundle) continue;
     const name = entry.name ?? path.split('node_modules/').at(-1);
     if (!name || !entry.version || !entry.resolved?.startsWith('https://registry.npmjs.org/')) {
       throw new Error(`Cannot verify registry release age for ${path}`);
@@ -84,7 +84,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.error(`Release-age check failed:\n${failures.map((failure) => `- ${failure}`).join('\n')}`);
       process.exitCode = 1;
     } else {
-      console.log(`Release-age check passed: ${checked} package versions are at least 7 days old.`);
+      if (values.base !== undefined && checked === 0) {
+        console.log('Release-age check passed: no new package versions to check.');
+      } else {
+        const qualifier = values.base !== undefined ? 'new ' : '';
+        console.log(`Release-age check passed: ${checked} ${qualifier}package versions checked (all published ≥7 days ago).`);
+      }
     }
   } catch (error) {
     console.error(`Release-age check failed: ${error.message}`);
