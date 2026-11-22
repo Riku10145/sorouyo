@@ -68,7 +68,7 @@ button:disabled { cursor: default; }
   to { --tabs-fade-start: 32px; --tabs-fade-end: 0px; }
 }
 /* タブがはみ出したときだけ、続きがある側の端をぼかす。下の罫線はぼかさない */
-@supports (animation-timeline: scroll()) {
+@supports (animation-timeline: scroll(self inline)) {
   .group-tabs {
     mask: linear-gradient(to right, transparent, #000 var(--tabs-fade-start), #000 calc(100% - var(--tabs-fade-end)), transparent),
       linear-gradient(#000 0 0) bottom / 100% 1px no-repeat;
