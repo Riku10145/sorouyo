@@ -44,7 +44,7 @@ export function Settings() {
         <h2>ログインしていません</h2>
         <p>主催者としてログインすると、自分のグループや日程調整を管理できます。</p>
       </section>
-      <a className="about-row" href="/api/auth/login" onClick={(event) => void login(event)}><span><strong>ログイン</strong><span>別の端末でも同じアカウントでログインできます。</span></span><Icon name="chevronRight" size={18} /></a>
+      <a className="about-row card" href="/api/auth/login" onClick={(event) => void login(event)}><span><strong>ログイン</strong><span>別の端末でも同じアカウントでログインできます。</span></span><Icon name="chevronRight" size={18} /></a>
       {loginUnavailable && <p className="form-error card" role="alert">ログイン機能はまだ設定されていません。WorkOSの環境変数が入った環境でお試しください。</p>}
     </>}
     {me && <>
@@ -56,6 +56,6 @@ export function Settings() {
       <p className="note">別の端末でも、同じアカウントでログインすれば自分のグループに戻れます。</p>
       <button type="button" className="ghost-btn wide" disabled={busy} onClick={() => void logout()}><Icon name="edit" size={18} />ログアウト</button>
     </>}
-    <a className="about-row" href="/"><span><strong>ホームへ戻る</strong></span><Icon name="chevronRight" size={18} /></a>
+    <a className="about-row card" href="/"><span><strong>ホームへ戻る</strong></span><Icon name="chevronRight" size={18} /></a>
   </GuestFrame>;
 }
