@@ -460,4 +460,79 @@ describe('data', () => {
     expect((await req(app, db, `/api/events/${event.id}`, { headers: { cookie: other } })).status).toBe(403);
     expect((await req(app, db, `/api/events/${event.id}`, { headers: { cookie: await guest(app, db) } })).status).toBe(401);
   });
+
+  test('調整一覧: 所属グループの調整だけが状態・件数つきで返る（#27 一覧・#29 確定表示）', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const member = await login(app, db, 'code_member');
+    const other = await login(app, db, 'code_other');
+    const { groupId, pollId, token } = await setupPoll(app, db, host);
+    const joinRes = await req(app, db, `/api/groups/${groupId}/invites`, { method: 'POST', headers: { cookie: host } });
+    const { token: joinToken } = await joinRes.json() as { token: string };
+    await post(app, db, '/api/groups/join', { token: joinToken }, member);
+
+    // 1件回答を入れておく
+    const invite = await post(app, db, '/api/invite', { token });
+    const { poll: inv } = await invite.json() as { poll: { candidates: { id: string; date: string }[] } };
+    await post(app, db, '/api/invite/answer', { token, name: 'B子', votes: [{ candidateId: inv.candidates[0]!.id, value: 'yes' }] }, await guest(app, db));
+
+    // 未ログインは401、非メンバーは空リスト
+    expect((await req(app, db, '/api/polls')).status).toBe(401);
+    const otherList = await req(app, db, '/api/polls', { headers: { cookie: other } });
+    expect((await otherList.json() as { polls: unknown[] }).polls).toHaveLength(0);
+
+    // メンバーはグループの調整が見える（候補2日・回答1人・受付中・作成者ではない）
+    const list = await req(app, db, '/api/polls', { headers: { cookie: member } });
+    const { polls } = await list.json() as { polls: { id: string; title: string; accepting: boolean; group: { id: string }; creator: boolean; candidatesCount: number; answersCount: number; confirmed: unknown }[] };
+    expect(polls).toHaveLength(1);
+    expect(polls[0]).toMatchObject({
+      id: pollId, title: '花見', accepting: true, creator: false,
+      candidatesCount: 2, answersCount: 1, confirmed: null,
+      group: { id: groupId },
+    });
+
+    // 確定すると確定日が返り、受付中ではなくなる
+    await post(app, db, `/api/polls/${pollId}/confirm`, { candidateId: inv.candidates[0]!.id }, host);
+    const list2 = await req(app, db, '/api/polls', { headers: { cookie: member } });
+    const { polls: after } = await list2.json() as { polls: { status: string; accepting: boolean; confirmed: { date: string; startTime: string | null } | null }[] };
+    expect(after[0]).toMatchObject({ status: 'confirmed', accepting: false, confirmed: { date: '2026-04-04', startTime: '18:00' } });
+  });
+
+  test('調整の作成: 候補0件は400、メンバーも作成でき、締切過去は受付終了で返る', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const member = await login(app, db, 'code_member');
+    const other = await login(app, db, 'code_other');
+    const created = await post(app, db, '/api/groups', { name: 'いつメン' }, host);
+    const { group } = await created.json() as { group: { id: string } };
+    const joinRes = await req(app, db, `/api/groups/${group.id}/invites`, { method: 'POST', headers: { cookie: host } });
+    const { token: joinToken } = await joinRes.json() as { token: string };
+    await post(app, db, '/api/groups/join', { token: joinToken }, member);
+
+    // 候補0件・非メンバーは作成できない
+    expect((await post(app, db, `/api/groups/${group.id}/polls`, { title: 'x', candidates: [] }, host)).status).toBe(400);
+    expect((await post(app, db, `/api/groups/${group.id}/polls`, { title: 'x', candidates: [{ date: '2026-06-01' }] }, other)).status).toBe(403);
+
+    // メンバー（管理者でなくても）も作成でき、回答リンクが発行される
+    const made = await post(app, db, `/api/groups/${group.id}/polls`, {
+      title: '締切過去の調整',
+      deadlineAt: '2020-01-01T00:00:00.000Z',
+      candidates: [{ date: '2026-06-01', time: null }, { date: '2026-06-02', time: '19:00' }],
+    }, member);
+    expect(made.status).toBe(201);
+    const { poll: p2, token } = await made.json() as { poll: { id: string }; token: string };
+
+    // 一覧では締切済み（accepting=false）として返る
+    const list = await req(app, db, '/api/polls', { headers: { cookie: member } });
+    const { polls } = await list.json() as { polls: { id: string; accepting: boolean; creator: boolean }[] };
+    expect(polls.find(p => p.id === p2.id)).toMatchObject({ accepting: false, creator: true });
+
+    // ゲストの回答リンクでも受付終了が分かり、回答は410
+    const inviteRes = await post(app, db, '/api/invite', { token });
+    const { poll: inv } = await inviteRes.json() as { poll: { accepting: boolean; candidates: { id: string }[] } };
+    expect(inv.accepting).toBe(false);
+    expect((await post(app, db, '/api/invite/answer', { token, name: 'x', votes: [{ candidateId: inv.candidates[0]!.id, value: 'yes' }] }, await guest(app, db))).status).toBe(410);
+  });
 });

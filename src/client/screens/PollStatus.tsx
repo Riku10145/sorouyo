@@ -33,6 +33,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
     </AppShell>;
   }
   const remote = result.poll;
+  const expired = remote.status === 'open' && !!remote.deadlineAt && remote.deadlineAt <= new Date().toISOString();
   const confirmedIndex = remote.confirmedCandidateId
     ? remote.candidates.findIndex(c => c.id === remote.confirmedCandidateId) : null;
   const poll: Poll = {
@@ -56,14 +57,14 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
     const token = await issueInviteToken(remote.id);
     return token ? `${window.location.origin}/r#${token}` : '';
   };
-  return <PollStatus poll={poll} selectedDate={selectedDate}
+  return <PollStatus poll={poll} selectedDate={selectedDate} expired={expired}
     onConfirm={index => confirmCandidate(remote.id, remote.candidates[index]!.id)}
     onCopyLink={link}
     onAnswerLink={async () => { const url = await link(); window.location.href = url; }} />;
 }
 
-export function PollStatus({ poll, selectedDate, onConfirm, onCopyLink, onAnswerLink }: {
-  poll: Poll; selectedDate: string;
+export function PollStatus({ poll, selectedDate, expired = false, onConfirm, onCopyLink, onAnswerLink }: {
+  poll: Poll; selectedDate: string; expired?: boolean;
   onConfirm?: (index: number) => Promise<boolean>;
   onCopyLink?: () => Promise<string>;
   onAnswerLink?: () => void;
@@ -88,11 +89,18 @@ export function PollStatus({ poll, selectedDate, onConfirm, onCopyLink, onAnswer
     catch { toast(`回答リンク：${url}`); }
   };
   const confirm = async () => {
-    if (onConfirm) { if (await onConfirm(chosen)) setConfirmed(chosen); }
-    else setConfirmed(chosen);
+    if (confirmed !== null) return; // 確定後の二度押し・別候補への確定はさせない
+    const done = onConfirm ? await onConfirm(chosen) : true;
+    if (done) {
+      setConfirmed(chosen);
+      toast(`${dateLabel(candidate.date)}に確定しました。共有カレンダーに予定が載りました`);
+    } else toast('確定できませんでした。すでに別の日に確定している可能性があります');
   };
   const confirmedBanner = confirmed !== null && <p className="confirmed" role="status">
     <Icon name="check" size={18} />{dateLabel(poll.candidates[confirmed]!.date)} {poll.candidates[confirmed]!.time}〜に決まりました。
+  </p>;
+  const expiredBanner = expired && confirmed === null && <p className="expired" role="status">
+    <Icon name="clock" size={18} />回答締切を過ぎました。回答は締め切られていますが、候補を選んで確定できます。
   </p>;
   const progress = <p className="progress"><span className="bars" aria-hidden="true">{poll.answers.map((_, i) => <i key={i} className={i < respondents ? 'on' : ''} />)}</span>{poll.answers.length}人中{respondents}人が回答</p>;
 
@@ -109,9 +117,10 @@ export function PollStatus({ poll, selectedDate, onConfirm, onCopyLink, onAnswer
     </div>
     <InviteHero poll={poll} eyebrow={`${poll.group.name}の日程調整`}>
       <span className="m-only">{progress}</span>
-      <p className="desk-only hero-meta">{poll.answers.length}人中{respondents}人が回答<span aria-hidden="true">・</span>回答締切 {dateLabel(poll.deadline.date)}{poll.deadline.time}</p>
+      <p className="desk-only hero-meta">{poll.answers.length}人中{respondents}人が回答<span aria-hidden="true">・</span>{poll.deadline.date === '1970-01-01' ? '回答締切なし' : <>回答締切 {dateLabel(poll.deadline.date)}{poll.deadline.time}</>}</p>
     </InviteHero>
     {confirmedBanner}
+    {expiredBanner}
 
     <section className="m-only poll-list" aria-labelledby="poll-list-heading">
       <div className="section-head">
@@ -125,7 +134,7 @@ export function PollStatus({ poll, selectedDate, onConfirm, onCopyLink, onAnswer
           ? <article key={item.id ?? item.date} ref={chosenCard} tabIndex={-1} className="cand-card" aria-label={`${label}（選択中）`}>
             <div className="cand-top">
               <p className="cand-date"><span className="num">{shortDate(item.date)}</span><small className={dayTone(item.date)}>{weekday(item.date)}</small><span className="cand-time num">{item.time}〜</span></p>
-              <div className="cand-flags">{index === best && <span>参加できる人が最多</span>}<span className="chip-selected"><Icon name="check" size={14} />選択中</span></div>
+              <div className="cand-flags">{index === best && <span>参加できる人が最多</span>}{index === confirmed && <span className="chip-soft">確定</span>}<span className="chip-selected"><Icon name="check" size={14} />選択中</span></div>
             </div>
             <ul className="member-marks">
               {you && <li>{answered(you) ? <span className={`mark-circle v-${you.votes[index] ?? 'none'}`}><VoteMark vote={you.votes[index] ?? null} /></span> : <span className="badge-pending">未回答</span>}<strong>あなた</strong></li>}
@@ -134,6 +143,7 @@ export function PollStatus({ poll, selectedDate, onConfirm, onCopyLink, onAnswer
           </article>
           : <button type="button" key={item.id ?? item.date} className="cand-row" onClick={() => choose(index)} aria-label={`${label}、参加${count.yes}、未定${count.maybe}、欠席${count.no}。この候補日を選ぶ`}>
             <span className="cand-date"><span className="num">{shortDate(item.date)}</span><small className={dayTone(item.date)}>{weekday(item.date)}</small><span className="cand-time num">{item.time}〜</span></span>
+            {index === confirmed && <span className="chip-soft">確定</span>}
             <span className="counts"><span>参加<b>{count.yes}</b></span><span>未定<b className="maybe">{count.maybe}</b></span><span>欠席<b className="no">{count.no}</b></span></span>
             <Icon name="chevronRight" size={18} />
           </button>;
@@ -145,7 +155,7 @@ export function PollStatus({ poll, selectedDate, onConfirm, onCopyLink, onAnswer
       <table className="matrix">
         <thead><tr><th scope="col">メンバー</th>{poll.candidates.map((item, index) => <th scope="col" key={item.id ?? item.date}>
           <button type="button" className="matrix-date" aria-pressed={index === chosen} onClick={() => setChosen(index)}>
-            <strong>{dateLabel(item.date)}</strong><span className="num">{item.time}〜</span>{index === chosen && <span className="chip-soft">選択中</span>}
+            <strong>{dateLabel(item.date)}</strong><span className="num">{item.time}〜</span>{index === confirmed && <span className="chip-soft">確定</span>}{index === chosen && <span className="chip-soft">選択中</span>}
           </button></th>)}</tr></thead>
         <tbody>{poll.answers.map(answer => <tr key={answer.id ?? answer.name} className={answer === you ? 'you' : ''}>
           <th scope="row">{answer.name}{answer === you && '（あなた）'}</th>
@@ -156,8 +166,8 @@ export function PollStatus({ poll, selectedDate, onConfirm, onCopyLink, onAnswer
 
     <div className="confirm-bar">
       <p className="desk-only best-note"><span>{chosen === best ? '参加できる人が最多' : '選択中の候補日'}</span><strong>{dateLabel(candidate.date)}{candidate.time}〜</strong></p>
-      <button type="button" className="primary-btn wide" disabled={confirmed === chosen} onClick={confirm}>
-        <Icon name="check" size={18} className="desk-only" />{confirmed === chosen ? '確定しました' : <><span className="m-only">{confirmLabel}</span><span className="desk-only">この日程に確定する</span></>}
+      <button type="button" className="primary-btn wide" disabled={confirmed !== null} onClick={confirm}>
+        <Icon name="check" size={18} className="desk-only" />{confirmed !== null ? '確定しました' : <><span className="m-only">{confirmLabel}</span><span className="desk-only">この日程に確定する</span></>}
       </button>
     </div>
   </AppShell>;

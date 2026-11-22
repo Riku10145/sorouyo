@@ -9,6 +9,7 @@ import { SAMPLE_SELECTED_DATE, findPoll } from '../shared/sample';
 import { Toaster } from './design/ui';
 import { Home, todayInTokyo } from './screens/Home';
 import { PollStatus, RemotePollStatus } from './screens/PollStatus';
+import { Polls, PollCreate } from './screens/Polls';
 import { GuestAnswer } from './screens/GuestAnswer';
 import { Groups, GroupDetail } from './screens/Groups';
 import { JoinGroup } from './screens/Join';
@@ -26,6 +27,8 @@ function Screen() {
   if (pathname === '/join' || pathname === '/join/') return <JoinGroup />;
   if (pathname === '/settings' || pathname === '/settings/') return <Settings />;
   if (pathname === '/groups' || pathname === '/groups/') return <Groups />;
+  if (pathname === '/polls' || pathname === '/polls/') return <Polls />;
+  if (pathname === '/polls/new' || pathname === '/polls/new/') return <PollCreate />;
   const groupId = pathname.match(/^\/groups\/([\w-]+)\/?$/)?.[1];
   if (groupId) return <GroupDetail id={groupId} selectedDate={selected} />;
   const eventId = pathname.match(/^\/events\/([\w-]+)\/?$/)?.[1];

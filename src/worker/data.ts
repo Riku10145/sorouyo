@@ -404,6 +404,37 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     return c.json({ token } as const, 201);
   })
 
+  // 所属グループの調整一覧（メンバー以上）。状態・候補数・回答数・確定日を含める
+  .get('/polls', async (c) => {
+    const subject = await subjectOf(c);
+    if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
+    const polls = await all<PollRow & { group_name: string; group_color: string | null; candidate_count: number; answer_count: number; confirmed_date: string | null; confirmed_time: string | null }>(c.env.DB.prepare(
+      `SELECT p.*, g.name AS group_name, g.color AS group_color, cc.date AS confirmed_date, cc.start_time AS confirmed_time,
+              (SELECT COUNT(*) FROM candidates cd WHERE cd.poll_id = p.id) AS candidate_count,
+              (SELECT COUNT(*) FROM answers a WHERE a.poll_id = p.id) AS answer_count
+       FROM polls p
+       JOIN groups g ON g.id = p.group_id
+       JOIN memberships m ON m.group_id = p.group_id AND m.user_id = ?
+       LEFT JOIN candidates cc ON cc.id = p.confirmed_candidate_id
+       ORDER BY p.created_at DESC`
+    ).bind(subject.userId).all());
+    const at = now();
+    return c.json({
+      polls: polls.map(p => ({
+        id: p.id,
+        title: p.title,
+        status: p.status,
+        deadlineAt: p.deadline_at,
+        accepting: p.status === 'open' && (!p.deadline_at || p.deadline_at > at),
+        group: { id: p.group_id, name: p.group_name, color: p.group_color },
+        creator: p.creator_id === subject.userId,
+        candidatesCount: p.candidate_count,
+        answersCount: p.answer_count,
+        confirmed: p.confirmed_date ? { date: p.confirmed_date, startTime: p.confirmed_time } : null,
+      })),
+    } as const);
+  })
+
   // 調整の取得（メンバー以上）。ゲストの回答リンクではこの形は返さない
   .get('/polls/:id', async (c) => {
     const subject = await subjectOf(c);
