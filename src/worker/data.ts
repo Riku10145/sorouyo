@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import { validator } from 'hono/validator';
-import { voteSchema } from '../shared/model';
+import { voteSchema } from '../shared/schema';
 import { can, type PollTarget, type Subject } from '../shared/permissions';
 import { getCookie } from 'hono/cookie';
 import {
