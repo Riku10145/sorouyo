@@ -9,6 +9,21 @@ const displayName = (me: Me) =>
 export function Settings() {
   const me = useMe();
   const [busy, setBusy] = useState(false);
+  const [loginUnavailable, setLoginUnavailable] = useState(false);
+  // 未設定環境では /api/auth/login が生の503 JSONを返すので、先に確認して画面内にお知らせする
+  const login = async (event: React.MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    try {
+      const res = await fetch('/api/auth/login', { redirect: 'manual' });
+      if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
+        window.location.href = '/api/auth/login';
+      } else {
+        setLoginUnavailable(true);
+      }
+    } catch {
+      window.location.href = '/api/auth/login';
+    }
+  };
   const logout = async () => {
     setBusy(true);
     try {
@@ -29,7 +44,8 @@ export function Settings() {
         <h2>ログインしていません</h2>
         <p>主催者としてログインすると、自分のグループや日程調整を管理できます。</p>
       </section>
-      <a className="about-row" href="/api/auth/login"><span><strong>ログイン</strong><span>別の端末でも同じアカウントでログインできます。</span></span><Icon name="chevronRight" size={18} /></a>
+      <a className="about-row card" href="/api/auth/login" onClick={(event) => void login(event)}><span><strong>ログイン</strong><span>別の端末でも同じアカウントでログインできます。</span></span><Icon name="chevronRight" size={18} /></a>
+      {loginUnavailable && <p className="form-error card" role="alert">ログイン機能はまだ設定されていません。WorkOSの環境変数が入った環境でお試しください。</p>}
     </>}
     {me && <>
       <section className="invite-card">
@@ -40,6 +56,6 @@ export function Settings() {
       <p className="note">別の端末でも、同じアカウントでログインすれば自分のグループに戻れます。</p>
       <button type="button" className="ghost-btn wide" disabled={busy} onClick={() => void logout()}><Icon name="edit" size={18} />ログアウト</button>
     </>}
-    <a className="about-row" href="/"><span><strong>ホームへ戻る</strong></span><Icon name="chevronRight" size={18} /></a>
+    <a className="about-row card" href="/"><span><strong>ホームへ戻る</strong></span><Icon name="chevronRight" size={18} /></a>
   </GuestFrame>;
 }
