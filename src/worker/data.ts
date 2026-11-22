@@ -287,6 +287,8 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
   // 調整の取得（メンバー以上）。ゲストの回答リンクではこの形は返さない
   .get('/polls/:id', async (c) => {
     const subject = await subjectOf(c);
+    // 未ログインは401としてクライアントにログイン導線を出させる（ゲストは回答リンク経由のみ）
+    if (!subject.userId) return c.json({ error: 'unauthorized' } as const, 401);
     const poll = await get<PollRow>(c.env.DB.prepare(`SELECT * FROM polls WHERE id = ?`).bind(c.req.param('id')).first());
     if (!poll) return c.json({ error: 'not_found' } as const, 404);
     const target = await pollTarget(c, poll, false);
@@ -510,10 +512,13 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const votes = body.data.votes.filter(v => validIds.has(v.candidateId) && !seen.has(v.candidateId) && (seen.add(v.candidateId), true));
     if (!votes.length) return c.json({ error: 'invalid_body' } as const, 400);
 
+    // 締切・確定済みの調整には、既存回答があっても新しい送信を受け付けない
+    const accepting = poll.status === 'open' && (!poll.deadline_at || poll.deadline_at > now());
+    if (!accepting) return c.json({ error: 'closed' } as const, 410);
+
     const { saved, savedVotes } = await writeAnswer(c, poll.id, key, ids, body.data.name, body.data.comment ?? null, votes);
     if (!saved || (votes.length && !savedVotes.length)) {
-      const accepting = poll.status === 'open' && (!poll.deadline_at || poll.deadline_at > now());
-      if (!accepting) return c.json({ error: 'closed' } as const, 410);
+      if (!(poll.status === 'open' && (!poll.deadline_at || poll.deadline_at > now()))) return c.json({ error: 'closed' } as const, 410);
       return c.json({ error: 'conflict' } as const, 409);
     }
     return c.json({

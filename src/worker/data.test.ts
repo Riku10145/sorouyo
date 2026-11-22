@@ -203,7 +203,7 @@ describe('data', () => {
 
     // 他グループの予定は見えない
     expect((await req(app, db, '/api/calendar', { headers: { cookie: b } })).status).toBe(401);
-    expect((await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: b } })).status).toBe(403);
+    expect([401, 403]).toContain((await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: b } })).status);
     // 主催者操作は拒否（ゲスト/別アカウントどちらも）
     const confirmBody = JSON.stringify({ candidateId: 'x' });
     for (const cookie of [b, other]) {
@@ -252,6 +252,8 @@ describe('data', () => {
     const inviteRes = await post(app, db, '/api/invite', { token });
     const { poll } = await inviteRes.json() as { poll: { candidates: { id: string; date: string }[] } };
     const chosen = poll.candidates[0]!;
+    const answerer = await guest(app, db);
+    await post(app, db, '/api/invite/answer', { token, name: 'さき', votes: [{ candidateId: chosen.id, value: 'yes' }] }, answerer);
 
     const confirmed = await post(app, db, `/api/polls/${pollId}/confirm`, { candidateId: chosen.id }, host);
     expect(confirmed.status).toBe(200);
@@ -272,6 +274,10 @@ describe('data', () => {
     // 確定後は新しい回答を受け付けない
     const late = await post(app, db, '/api/invite/answer', { token, name: '遅い人', votes: [{ candidateId: chosen.id, value: 'yes' }] }, await guest(app, db));
     expect(late.status).toBe(410);
+
+    // 確定後の再送も、既存回答があっても受理表示せず410（古い控えを新しい回答に見せない）
+    const resend = await post(app, db, '/api/invite/answer', { token, name: 'さき', votes: [{ candidateId: chosen.id, value: 'no' }] }, answerer);
+    expect(resend.status).toBe(410);
 
     // 取消すると予定が消える
     await post(app, db, `/api/polls/${pollId}/unconfirm`, {}, host);
