@@ -88,9 +88,12 @@ export function PollStatus({ poll, selectedDate, expired = false, onConfirm, onC
     try { await navigator.clipboard.writeText(url); toast('回答リンクをコピーしました'); }
     catch { toast(`回答リンク：${url}`); }
   };
+  const confirming = useRef(false);
   const confirm = async () => {
-    if (confirmed !== null) return; // 確定後の二度押し・別候補への確定はさせない
+    if (confirmed !== null || confirming.current) return; // 確定後・確定処理中の再確定はさせない
+    confirming.current = true;
     const done = onConfirm ? await onConfirm(chosen) : true;
+    confirming.current = false;
     if (done) {
       setConfirmed(chosen);
       toast(`${dateLabel(candidate.date)}に確定しました。共有カレンダーに予定が載りました`);
@@ -99,7 +102,7 @@ export function PollStatus({ poll, selectedDate, expired = false, onConfirm, onC
   const confirmedBanner = confirmed !== null && <p className="confirmed" role="status">
     <Icon name="check" size={18} />{dateLabel(poll.candidates[confirmed]!.date)} {poll.candidates[confirmed]!.time}〜に決まりました。
   </p>;
-  const expiredBanner = expired && confirmed === null && <p className="expired" role="status">
+  const expiredBanner = expired && confirmed === null && <p className="expired-note" role="status">
     <Icon name="clock" size={18} />回答締切を過ぎました。回答は締め切られていますが、候補を選んで確定できます。
   </p>;
   const progress = <p className="progress"><span className="bars" aria-hidden="true">{poll.answers.map((_, i) => <i key={i} className={i < respondents ? 'on' : ''} />)}</span>{poll.answers.length}人中{respondents}人が回答</p>;

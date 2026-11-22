@@ -337,7 +337,7 @@ fieldset.field legend { padding: 0; font-size: 13px; font-weight: 700; color: va
 .poll-status.open { background: var(--color-primary-soft); color: var(--color-ink); }
 .poll-status.expired { background: var(--color-pending); color: var(--color-pending-ink); }
 .poll-status.confirmed { background: var(--color-ink); color: #fff; }
-.expired { display: flex; gap: 8px; align-items: flex-start; margin: 12px 16px 0; padding: 12px 14px; border-radius: var(--radius-md); background: var(--color-pending); color: var(--color-pending-ink); font-size: 13px; font-weight: 600; }
+.expired-note { display: flex; gap: 8px; align-items: flex-start; margin: 12px 16px 0; padding: 12px 14px; border-radius: var(--radius-md); background: var(--color-pending); color: var(--color-pending-ink); font-size: 13px; font-weight: 600; }
 .pick-cell { position: relative; }
 .pick-cell:disabled { opacity: .35; }
 .pick-cell.picked { background: #ECF3E9; border-radius: 10px; }
@@ -359,5 +359,5 @@ fieldset.field legend { padding: 0; font-size: 13px; font-weight: 700; color: va
 .copy-line { display: flex; gap: 8px; align-items: center; }
 .copy-line input { flex: 1; height: 44px; padding: 0 12px; border: 1px solid var(--color-line); border-radius: var(--radius-md); background: #FAFBF8; font-size: 13px; color: var(--color-text); }
 @media (min-width: 1024px) {
-  .expired { margin: 16px 0 0; }
+  .expired-note { margin: 16px 0 0; }
 }

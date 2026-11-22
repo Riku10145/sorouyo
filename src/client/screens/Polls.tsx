@@ -66,16 +66,16 @@ export function Polls() {
     <h1 className="page-title">日程調整</h1>
     <div className="groups-body">
       {polls === null ? <p className="loading-note">読み込み中…</p> : <>
-        {shown.length === 0 && <section className="empty-hero">
+        {shown.length === 0 && ((polls ?? []).length === 0 ? <section className="empty-hero">
           <h2>まだ日程調整がありません</h2>
           <p>候補日をまとめて選んで、LINEなどに貼れる回答リンクを作れます。</p>
-        </section>}
+        </section> : <p className="hint">表示中のグループに日程調整はありません。</p>)}
         <ul className="group-list">
           {shown.map(poll => <li key={poll.id}><PollRow poll={poll} /></li>)}
         </ul>
-        {(groups ?? []).length > 0
+        {groups !== null && ((groups ?? []).length > 0
           ? <a className="primary-btn wide" href="/polls/new"><Icon name="plus" size={18} />日程調整を作成</a>
-          : <p className="hint"><a href="/groups">まずグループを作成してください</a></p>}
+          : <p className="hint"><a href="/groups">まずグループを作成してください</a></p>)}
       </>}
     </div>
   </AppShell>;
@@ -132,6 +132,7 @@ export function PollCreate() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (busy) return; // 二重送信防止
     if (!title.trim()) { setError('予定名を入力してください'); return; }
     if (!dates.length) { setError('候補日を1つ以上選んでください'); return; }
     setBusy(true);
