@@ -20,7 +20,6 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm install -g npm@12.2.2
-      - run: npm ci
       - if: github.event_name == 'pull_request'
         run: npm run check:release-age -- --base "origin/$BASE_REF"
         env:
@@ -35,5 +34,6 @@ jobs:
           fi
         env:
           BASE_SHA: ${{ github.event.before }}
+      - run: npm ci
       - run: npm run cf-typegen && git diff --exit-code -- worker-configuration.d.ts
       - run: npm run check
