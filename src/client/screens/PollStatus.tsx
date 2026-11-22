@@ -24,7 +24,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
   if (!result.poll) {
     const login = result.status === 401;
     return <AppShell active="polls" selectedDate={selectedDate} groups={[]} subpage>
-      <div className="m-only m-back"><a className="text-btn" href="/"><Icon name="chevronLeft" size={20} />日程調整</a></div>
+      <div className="m-only m-back"><a className="text-btn" href="/polls"><Icon name="chevronLeft" size={20} />日程調整</a></div>
       <section className="notice-card" role="alert" style={{ margin: '24px 16px' }}>
         <Icon name="link" size={32} />
         <h2>{login ? 'ログインが必要です' : '調整を開けません'}</h2>
@@ -111,7 +111,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
 
   const group: DisplayGroup = { id: poll.token || poll.title, name: poll.group.name, color: poll.group.color ?? null, className: poll.group.className };
   return <AppShell active="polls" selectedDate={selectedDate} groups={[group]} subpage>
-    <div className="m-only m-back"><a className="text-btn" href="/"><Icon name="chevronLeft" size={20} />日程調整</a></div>
+    <div className="m-only m-back"><a className="text-btn" href="/polls"><Icon name="chevronLeft" size={20} />日程調整</a></div>
     <div className="desk-only poll-toolbar">
       <p className="page-label">日程調整</p>
       <div className="toolbar-actions">

@@ -15,7 +15,7 @@ export function useHashToken() {
   return token;
 }
 
-const deadlineText = (poll: Poll) => `${dateLabel(poll.deadline.date)}${poll.deadline.time}`;
+const deadlineText = (poll: Poll) => poll.deadline.date === '1970-01-01' ? '未設定' : `${dateLabel(poll.deadline.date)}${poll.deadline.time}`;
 
 export function GuestFrame({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return <main className={`guest${wide ? ' guest-wide' : ''}`}>{children}</main>;
@@ -151,7 +151,7 @@ function GuestForm({ poll, initial, onSubmit }: {
         <InviteHero poll={poll} eyebrow={`${poll.host}さんからのお誘い`}>
           <p className="hero-meta">{pollDot(poll)}{poll.group.name}<span className="m-only"><span aria-hidden="true">・</span>{poll.deadline.date === '1970-01-01' ? '締切なし' : <>締切 <span className="num">{shortDate(poll.deadline.date)} {poll.deadline.time}</span></>}</span></p>
         </InviteHero>
-        <p className="desk-only side-foot"><strong>{poll.deadline.date === '1970-01-01' ? '回答締切なし' : `回答締切　${deadlineText(poll)}`}</strong><span>アプリ・ログイン不要</span></p>
+        <p className="desk-only side-foot"><strong>回答締切　{deadlineText(poll)}</strong><span>アプリ・ログイン不要</span></p>
       </div>
       <form className="guest-form" ref={form} onSubmit={submit} noValidate>
         <div className="vote-head"><h2>候補日</h2><span aria-hidden="true">{Object.values(VOTE_WORD).map(word => <span key={word}>{word}</span>)}</span></div>
