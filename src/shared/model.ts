@@ -43,3 +43,32 @@ export function tally(poll: { answers: readonly { votes: readonly unknown[] }[] 
   }
   return result;
 }
+
+export type PollAnswer = { name: string; votes: readonly (Vote | null)[]; comment?: string };
+
+export const answered = (answer: PollAnswer): boolean => answer.votes.some(vote => vote !== null);
+
+export function bestCandidate(poll: { candidates: readonly unknown[]; answers: readonly PollAnswer[] }): number {
+  const score = (index: number) => {
+    const { yes, maybe, no } = tally(poll, index);
+    return [yes, maybe, -no] as const;
+  };
+  return poll.candidates.reduce<number>((best, _, index) => {
+    const [a, b] = [score(index), score(best)];
+    const diff = a.findIndex((value, i) => value !== b[i]);
+    return diff >= 0 && a[diff]! > b[diff]! ? index : best;
+  }, 0);
+}
+
+export const shortDate = (key: string): string => `${Number(key.slice(5, 7))}/${Number(key.slice(8))}`;
+export const weekday = (key: string): string => DAYS[dateFromKey(key).getDay()]!;
+export const dayTone = (key: string): 'sun' | 'sat' | undefined => {
+  const day = dateFromKey(key).getDay();
+  return day === 0 ? 'sun' : day === 6 ? 'sat' : undefined;
+};
+
+export function answerError(votes: readonly (Vote | null)[], name: string): string {
+  if (votes.some(vote => vote === null)) return 'すべての候補日に○△×を選んでください。';
+  if (!name.trim()) return 'お名前を入力してください。';
+  return '';
+}
