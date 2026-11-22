@@ -98,6 +98,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
     confirming.current = true;
     let done = true;
     try { done = onConfirm ? await onConfirm(chosen) : true; }
+    catch { done = false; } // ネットワークエラー等でも失敗トーストに倒す
     finally { confirming.current = false; }
     if (done) {
       setConfirmed(chosen);
