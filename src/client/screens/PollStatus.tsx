@@ -3,7 +3,7 @@ import { answered, bestCandidate, dateLabel, shortDate, tally, weekday, dayTone 
 import { SAMPLE_ORGANIZER, type Poll } from '../../shared/sample';
 import { Icon, InviteHero, VoteMark, notReady, toast, type DisplayGroup } from '../design/ui';
 import { AppShell } from './Shell';
-import { confirmCandidate, fetchMemberPoll, issueInviteToken, toJst, type MemberPoll } from '../api';
+import { confirmCandidate, fetchMemberPoll, issueInviteToken, toJst, useMe, type MemberPoll } from '../api';
 
 const guestUrl = (poll: Poll) => `${window.location.origin}/r#${poll.token}`;
 
@@ -12,6 +12,7 @@ const pollDot = (poll: Poll) =>
 
 /** /polls/<id> を実データで開く。ログインが必要な場合は設定画面への導線を出す。 */
 export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDate: string }) {
+  const me = useMe();
   const [result, setResult] = useState<{ poll?: MemberPoll; status: number } | 'loading'>('loading');
   useEffect(() => {
     let active = true;
@@ -58,13 +59,14 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
     return token ? `${window.location.origin}/r#${token}` : '';
   };
   return <PollStatus poll={poll} selectedDate={selectedDate} expired={expired}
+    canConfirm={me?.user.id === remote.creatorId} // 確定は主催者のみ（バックエンドも403で保護）
     onConfirm={index => confirmCandidate(remote.id, remote.candidates[index]!.id)}
     onCopyLink={link}
     onAnswerLink={async () => { const url = await link(); window.location.href = url; }} />;
 }
 
-export function PollStatus({ poll, selectedDate, expired = false, onConfirm, onCopyLink, onAnswerLink }: {
-  poll: Poll; selectedDate: string; expired?: boolean;
+export function PollStatus({ poll, selectedDate, expired = false, canConfirm = true, onConfirm, onCopyLink, onAnswerLink }: {
+  poll: Poll; selectedDate: string; expired?: boolean; canConfirm?: boolean;
   onConfirm?: (index: number) => Promise<boolean>;
   onCopyLink?: () => Promise<string>;
   onAnswerLink?: () => void;
@@ -167,11 +169,11 @@ export function PollStatus({ poll, selectedDate, expired = false, onConfirm, onC
       </table>
     </section>
 
-    <div className="confirm-bar">
+    {canConfirm && <div className="confirm-bar">
       <p className="desk-only best-note"><span>{chosen === best ? '参加できる人が最多' : '選択中の候補日'}</span><strong>{dateLabel(candidate.date)}{candidate.time}〜</strong></p>
       <button type="button" className="primary-btn wide" disabled={confirmed !== null} onClick={confirm}>
         <Icon name="check" size={18} className="desk-only" />{confirmed !== null ? '確定しました' : <><span className="m-only">{confirmLabel}</span><span className="desk-only">この日程に確定する</span></>}
       </button>
-    </div>
+    </div>}
   </AppShell>;
 }
