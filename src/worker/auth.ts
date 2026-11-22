@@ -129,8 +129,8 @@ export const verifyGuestId = async (value: string | undefined, env: AuthEnv | un
   const cut = value.lastIndexOf('.');
   if (cut <= 0) return undefined;
   const guestId = value.slice(0, cut);
-  const signature = Uint8Array.from(atob(value.slice(cut + 1).replaceAll('-', '+').replaceAll('_', '/')), ch => ch.charCodeAt(0));
   try {
+    const signature = Uint8Array.from(atob(value.slice(cut + 1).replaceAll('-', '+').replaceAll('_', '/')), ch => ch.charCodeAt(0));
     const ok = await crypto.subtle.verify('HMAC', await guestKey(guestSecret(env)), signature, new TextEncoder().encode(guestId));
     return ok ? guestId : undefined;
   } catch {

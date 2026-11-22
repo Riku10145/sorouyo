@@ -269,6 +269,17 @@ describe('guest', () => {
     expect(subject.guestId).toBeUndefined();
   });
 
+  test('a malformed guest signature does not fail and is re-issued', async () => {
+    const app = testApp(fakeWorkos());
+    const res = await app.request('https://app.example/api/guest/session', {
+      method: 'POST',
+      headers: { cookie: `${GUEST_COOKIE}=victim-id.!!!` },
+    });
+    expect(res.status).toBe(204);
+    const reissued = cookies(res, GUEST_COOKIE)[0]!;
+    expect(reissued).not.toContain('victim-id');
+  });
+
   test('a cross-origin guest session POST is rejected', async () => {
     const app = testApp(fakeWorkos());
     const res = await app.request('https://app.example/api/guest/session', {
