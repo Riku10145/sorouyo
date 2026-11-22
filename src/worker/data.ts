@@ -280,6 +280,8 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!invite || invite.purpose !== 'join' || !invite.group_id) {
       return c.json({ error: 'invite_invalid' } as const, 404);
     }
+    const group = await get<GroupRow>(c.env.DB.prepare(`SELECT id, name, color FROM groups WHERE id = ?`).bind(invite.group_id).first());
+    if (!group) return c.json({ error: 'invite_invalid' } as const, 404);
     const existing = await memberRole(c, invite.group_id, subject.userId);
     if (!existing) {
       await c.env.DB.prepare(
@@ -287,8 +289,6 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
          ON CONFLICT (group_id, user_id) DO NOTHING`
       ).bind(invite.group_id, subject.userId, now()).run();
     }
-    const group = await get<GroupRow>(c.env.DB.prepare(`SELECT id, name, color FROM groups WHERE id = ?`).bind(invite.group_id).first());
-    if (!group) return c.json({ error: 'invite_invalid' } as const, 404);
     return c.json({ group: { ...group, role: existing ?? 'member' }, already: existing !== undefined } as const, existing ? 200 : 201);
   })
 
