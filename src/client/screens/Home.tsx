@@ -186,7 +186,9 @@ function RemoteHome({ today, initialDate }: { today: string; initialDate: string
   const loadMonth = async (month: string, refresh = false) => {
     if (!refresh && cache.current.has(month)) return;
     cache.current.set(month, []); // 取得中は空でマークし、重複fetchを防ぐ
-    const events = await fetchCalendar(month);
+    const events = await fetchCalendar(month).catch(() => null);
+    // 失敗はキャッシュしない（空が確定扱いになりリロードまで戻らないのを防ぐ）
+    if (events === null) { cache.current.delete(month); return; }
     cache.current.set(month, events.map(toView));
     setMonths(new Map(cache.current));
   };

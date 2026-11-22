@@ -3,7 +3,7 @@ import { answered, bestCandidate, dateLabel, shortDate, tally, weekday, dayTone 
 import { SAMPLE_ORGANIZER, type Poll } from '../../shared/sample';
 import { Icon, InviteHero, VoteMark, notReady, toast, type DisplayGroup } from '../design/ui';
 import { AppShell } from './Shell';
-import { confirmCandidate, fetchMemberPoll, issueInviteToken, toJst, type MemberPoll } from '../api';
+import { confirmCandidate, fetchMemberPoll, issueInviteToken, toJst, useMe, type MemberPoll } from '../api';
 
 const guestUrl = (poll: Poll) => `${window.location.origin}/r#${poll.token}`;
 
@@ -12,6 +12,7 @@ const pollDot = (poll: Poll) =>
 
 /** /polls/<id> を実データで開く。ログインが必要な場合は設定画面への導線を出す。 */
 export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDate: string }) {
+  const me = useMe();
   const [result, setResult] = useState<{ poll?: MemberPoll; status: number } | 'loading'>('loading');
   useEffect(() => {
     let active = true;
@@ -40,7 +41,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
     title: remote.title,
     group: { name: remote.group.name, color: remote.group.color ?? undefined },
     host: remote.hostName ?? '幹事',
-    deadline: remote.deadlineAt ? toJst(remote.deadlineAt) : { date: '1970-01-01', time: '00:00' },
+    deadline: remote.deadlineAt ? toJst(remote.deadlineAt) : null,
     closed: remote.status === 'confirmed',
     candidates: remote.candidates.map(c => ({ id: c.id, date: c.date, time: c.startTime ?? '' })),
     answers: remote.answers.map(a => ({
@@ -57,13 +58,16 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
     return token ? `${window.location.origin}/r#${token}` : '';
   };
   return <PollStatus poll={poll} selectedDate={selectedDate}
+    canConfirm={me?.user.id === remote.creatorId}
     onConfirm={index => confirmCandidate(remote.id, remote.candidates[index]!.id)}
     onCopyLink={link}
     onAnswerLink={async () => { const url = await link(); window.location.href = url; }} />;
 }
 
-export function PollStatus({ poll, selectedDate, onConfirm, onCopyLink, onAnswerLink }: {
+export function PollStatus({ poll, selectedDate, canConfirm = true, onConfirm, onCopyLink, onAnswerLink }: {
   poll: Poll; selectedDate: string;
+  /** 確定権限がある操作者か（主催者のみ。メンバーには確定UIを出さない） */
+  canConfirm?: boolean;
   onConfirm?: (index: number) => Promise<boolean>;
   onCopyLink?: () => Promise<string>;
   onAnswerLink?: () => void;
@@ -109,7 +113,7 @@ export function PollStatus({ poll, selectedDate, onConfirm, onCopyLink, onAnswer
     </div>
     <InviteHero poll={poll} eyebrow={`${poll.group.name}の日程調整`}>
       <span className="m-only">{progress}</span>
-      <p className="desk-only hero-meta">{poll.answers.length}人中{respondents}人が回答<span aria-hidden="true">・</span>回答締切 {dateLabel(poll.deadline.date)}{poll.deadline.time}</p>
+      <p className="desk-only hero-meta">{poll.answers.length}人中{respondents}人が回答<span aria-hidden="true">・</span>回答締切 {poll.deadline ? `${dateLabel(poll.deadline.date)}${poll.deadline.time}` : 'なし'}</p>
     </InviteHero>
     {confirmedBanner}
 
@@ -154,11 +158,11 @@ export function PollStatus({ poll, selectedDate, onConfirm, onCopyLink, onAnswer
       </table>
     </section>
 
-    <div className="confirm-bar">
+    {canConfirm && <div className="confirm-bar">
       <p className="desk-only best-note"><span>{chosen === best ? '参加できる人が最多' : '選択中の候補日'}</span><strong>{dateLabel(candidate.date)}{candidate.time}〜</strong></p>
       <button type="button" className="primary-btn wide" disabled={confirmed === chosen} onClick={confirm}>
         <Icon name="check" size={18} className="desk-only" />{confirmed === chosen ? '確定しました' : <><span className="m-only">{confirmLabel}</span><span className="desk-only">この日程に確定する</span></>}
       </button>
-    </div>
+    </div>}
   </AppShell>;
 }
