@@ -3,6 +3,7 @@ import { answerError, dateLabel, dayTone, shortDate, weekday, type Vote } from '
 import { findPoll, groupName, type Poll } from '../../shared/sample';
 import { Brand, GroupDot, Icon, InviteHero, VOTE_WORD, VoteMark, VotePicker } from '../design/ui';
 import { Envelope } from '../design/art';
+import { api } from '../api';
 
 function useHashToken() {
   const [token, setToken] = useState(window.location.hash.slice(1).trim());
@@ -16,7 +17,7 @@ function useHashToken() {
 
 const deadlineText = (poll: Poll) => `${dateLabel(poll.deadline.date)}${poll.deadline.time}`;
 
-function GuestFrame({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
+export function GuestFrame({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return <main className={`guest${wide ? ' guest-wide' : ''}`}>{children}</main>;
 }
 
@@ -27,6 +28,9 @@ function Notice({ title, children }: { title: string; children: ReactNode }) {
 export function GuestAnswer() {
   const token = useHashToken();
   const poll = findPoll(token);
+  useEffect(() => {
+    if (token) api.api.guest.session.$post().catch(() => {});
+  }, [token]);
   if (!poll) return <Notice title="招待を開けません">
     <section className="notice-card" role="alert"><Icon name="link" size={32} /><h2>リンクをご確認ください</h2><p>招待リンクが無効です。送ってくれた方に、新しいリンクをお願いしてください。</p></section>
   </Notice>;
