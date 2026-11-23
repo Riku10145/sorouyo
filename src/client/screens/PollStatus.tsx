@@ -7,6 +7,7 @@ import { LoginLink } from './Auth';
 import { confirmCandidate, fetchMemberPoll, issueInviteToken, toJst, useMe, type MemberPoll } from '../api';
 
 const guestUrl = (poll: Poll) => `${window.location.origin}/r#${poll.token}`;
+const deadlineText = (poll: Poll) => poll.deadline ? `${dateLabel(poll.deadline.date)}${poll.deadline.time}` : 'なし';
 
 const pollDot = (poll: Poll) =>
   <span className={`dot ${poll.group.className ? `g-${poll.group.className}` : ''}`} style={poll.group.color ? { background: poll.group.color } : undefined} aria-hidden="true" />;
@@ -100,6 +101,7 @@ export function PollStatus({ poll, selectedDate, canConfirm = true, onConfirm, o
     <Icon name="check" size={18} />{dateLabel(poll.candidates[confirmed]!.date)} {poll.candidates[confirmed]!.time}〜に決まりました。
   </p>;
   const progress = <p className="progress"><span className="bars" aria-hidden="true">{poll.answers.map((_, i) => <i key={i} className={i < respondents ? 'on' : ''} />)}</span>{poll.answers.length}人中{respondents}人が回答</p>;
+  const deadline = deadlineText(poll);
 
   const group: DisplayGroup = { id: poll.token || poll.title, name: poll.group.name, color: poll.group.color ?? null, className: poll.group.className };
   return <AppShell active="polls" selectedDate={selectedDate} groups={[group]} subpage>
@@ -112,9 +114,9 @@ export function PollStatus({ poll, selectedDate, canConfirm = true, onConfirm, o
         <button type="button" className="soft-btn" onClick={() => onAnswerLink ? onAnswerLink() : window.location.href = `/r#${poll.token}`}><Icon name="edit" size={18} />自分の回答を入力</button>
       </div>
     </div>
-    <InviteHero poll={poll} eyebrow={`${poll.group.name}の日程調整`}>
+    <InviteHero poll={poll} eyebrow={`${poll.group.name}の日程調整`} footer={<p className="m-only hero-deadline">回答締切 {deadline}</p>}>
       <span className="m-only">{progress}</span>
-      <p className="desk-only hero-meta">{poll.answers.length}人中{respondents}人が回答<span aria-hidden="true">・</span>回答締切 {poll.deadline ? `${dateLabel(poll.deadline.date)}${poll.deadline.time}` : 'なし'}</p>
+      <p className="desk-only hero-meta">{poll.answers.length}人中{respondents}人が回答<span aria-hidden="true">・</span>回答締切 {deadline}</p>
     </InviteHero>
     {confirmedBanner}
 
