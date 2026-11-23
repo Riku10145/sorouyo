@@ -87,6 +87,21 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   const confirmLabel = `${dateLabel(candidate.date).replace('（', '(').replace('）', ')')}に確定する`;
   const linkUrl = async () => onCopyLink ? await onCopyLink() : guestUrl(poll);
   const copy = async () => {
+    // iOS Safari はタップのジェスチャーが切れると書き込みを拒否するため、
+    // リンク取得を待つ版は ClipboardItem に Promise を渡して先に書き込みを開始する
+    if (onCopyLink && typeof ClipboardItem !== 'undefined') {
+      try {
+        const item = new ClipboardItem({
+          'text/plain': linkUrl().then(url => {
+            if (!url) throw new Error('no link');
+            return new Blob([url], { type: 'text/plain' });
+          }),
+        });
+        await navigator.clipboard.write([item]);
+        toast('回答リンクをコピーしました');
+        return;
+      } catch { /* フォールバックに回す */ }
+    }
     const url = await linkUrl();
     if (!url) { toast('回答リンクを作れませんでした'); return; }
     try { await navigator.clipboard.writeText(url); toast('回答リンクをコピーしました'); }
