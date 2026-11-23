@@ -197,13 +197,10 @@ function RemoteHome({ today, initialDate }: { today: string; initialDate: string
   useEffect(() => {
     void (async () => {
       const current = initialDate.slice(0, 7);
-      // 月表示には隣月の日付も含まれるため、前後月も取得しておく
-      const [list] = await Promise.all([
-        fetchGroups(),
-        loadMonth(shiftedMonth(current, -1)),
-        loadMonth(current),
-        loadMonth(shiftedMonth(current, 1)),
-      ]);
+      const [list] = await Promise.all([fetchGroups(), loadMonth(current)]);
+      // 月表示には隣月の日付も含まれる。初回表示を待たせないため前後月はバックグラウンドで取る
+      void loadMonth(shiftedMonth(current, -1));
+      void loadMonth(shiftedMonth(current, 1));
       // 取得失敗を「0件」と誤表示しない（グループがある人に空の案内を出さない）
       setGroups(list ?? 'error');
     })();
