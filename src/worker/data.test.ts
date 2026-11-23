@@ -197,6 +197,31 @@ describe('data', () => {
     expect(seen.answers.map(a => a.name).sort()).toEqual(['B子', 'C子']);
   });
 
+  test('新規回答者が上限を超えると429になるが、既存回答の変更は通る', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const { token } = await setupPoll(app, db, host);
+    const invite = await post(app, db, '/api/invite', { token });
+    const { poll } = await invite.json() as { poll: { candidates: { id: string }[] } };
+    const c1 = poll.candidates[0]!.id;
+
+    // 30人が直近1時間に新規回答
+    const first = await guest(app, db);
+    for (let i = 0; i < 30; i++) {
+      const g = i === 0 ? first : await guest(app, db);
+      const r = await post(app, db, '/api/invite/answer', { token, name: `回答者${i}`, votes: [{ candidateId: c1, value: 'yes' }] }, g);
+      expect(r.status).toBe(200);
+    }
+    // 31人目の新規回答は429
+    const extra = await guest(app, db);
+    const limited = await post(app, db, '/api/invite/answer', { token, name: '31人目', votes: [{ candidateId: c1, value: 'yes' }] }, extra);
+    expect(limited.status).toBe(429);
+    // 既に回答済みの人の変更は制限されない
+    const update = await post(app, db, '/api/invite/answer', { token, name: '回答者0', votes: [{ candidateId: c1, value: 'no' }] }, first);
+    expect(update.status).toBe(200);
+  });
+
   test('回答リンクの範囲は対象の調整と自分の回答だけ（他グループの予定・主催者操作は拒否）', async () => {
     const db = makeDb();
     const app = testApp(db);
