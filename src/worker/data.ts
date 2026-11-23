@@ -643,12 +643,18 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const ids = subject.userId ? { userId: subject.userId } : { guestId: subject.guestId! };
     const key = ids.userId ? `u:${ids.userId}` : `g:${ids.guestId}`;
 
-    // リンク単位の簡易レート制限: 1時間に新しい回答者は30人まで。ゲスト識別子を取り直した連投への抑止
-    const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const recent = await get<{ n: number }>(c.env.DB.prepare(
-      `SELECT COUNT(DISTINCT respondent_key) AS n FROM answers WHERE poll_id = ? AND respondent_key <> ? AND created_at > ?`
-    ).bind(poll.id, key, hourAgo).first());
-    if ((recent?.n ?? 0) >= 30) return c.json({ error: 'rate_limited' } as const, 429);
+    // リンク単位の簡易レート制限: 1時間に新しい回答者は30人まで。ゲスト識別子を取り直した連投への抑止。
+    // 既に回答済みの人の変更は制限しない
+    const existing = await get<{ id: string }>(c.env.DB.prepare(
+      `SELECT id FROM answers WHERE poll_id = ? AND respondent_key = ?`
+    ).bind(poll.id, key).first());
+    if (!existing) {
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const recent = await get<{ n: number }>(c.env.DB.prepare(
+        `SELECT COUNT(DISTINCT respondent_key) AS n FROM answers WHERE poll_id = ? AND created_at > ?`
+      ).bind(poll.id, hourAgo).first());
+      if ((recent?.n ?? 0) >= 30) return c.json({ error: 'rate_limited' } as const, 429);
+    }
 
     // 対象調整に属する候補だけを受理し、同一候補の重複送信は最初の1件に絞る
     const validIds = new Set(
