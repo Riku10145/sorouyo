@@ -3,6 +3,7 @@ import { getCookie } from 'hono/cookie';
 import { describe, expect, test, vi } from 'vitest';
 import {
   GUEST_COOKIE,
+  NEXT_COOKIE,
   SESSION_COOKIE,
   STATE_COOKIE,
   buildAuthRoutes,
@@ -98,6 +99,33 @@ describe('auth', () => {
     expect(cookie).toContain('sorouyo_session=sealed.abc');
     expect(cookie).toContain('HttpOnly');
     expect(cookie).toContain('Secure');
+  });
+
+  test('login next stays on the app origin and external targets fall back to /settings', async () => {
+    const app = testApp(fakeWorkos());
+    const callback = async (login: Response) => {
+      const state = new URL(login.headers.get('location')!).searchParams.get('state')!;
+      const cookie = login.headers.getSetCookie().map(v => v.split(';')[0]).join('; ');
+      return app.request(`https://app.example/api/auth/callback?code=c&state=${state}`, {
+        headers: { cookie },
+      });
+    };
+    // 同一オリジンの相対パスは保持される（フラグメントの招待トークンも）
+    const ok = await app.request(`https://app.example/api/auth/login?next=${encodeURIComponent('/join#tok')}`);
+    expect((await callback(ok)).headers.get('location')).toBe('/join#tok');
+    // 外部オリジン・スキーム相対・ドットセグメントやバックスラッシュの迂回はフォールバック
+    for (const next of ['https://evil.example/x', '//evil.example/x', '/%2e%2e//evil.example/x', '/\\evil.example']) {
+      const res = await app.request(`https://app.example/api/auth/login?next=${encodeURIComponent(next)}`);
+      expect((await callback(res)).headers.get('location'), next).toBe('/settings');
+    }
+  });
+
+  test('a tampered next cookie cannot redirect the callback to an external site', async () => {
+    const app = testApp(fakeWorkos());
+    const res = await app.request('https://app.example/api/auth/callback?code=c&state=x', {
+      headers: { cookie: `${STATE_COOKIE}=x; ${NEXT_COOKIE}=//evil.example` },
+    });
+    expect(res.headers.get('location')).toBe('/settings');
   });
 
   test('me is 401 without a session and returns the user with one', async () => {

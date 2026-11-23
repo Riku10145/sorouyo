@@ -13,6 +13,7 @@ Node.js付属のnpmではなく、CIと同じnpm 12.2.2を使用してくださ�
 
 ```sh
 npm ci
+npx wrangler d1 migrations apply sorouyo --local  # 初回のみ: ローカルD1にスキーマを適用
 npm run dev
 ```
 
