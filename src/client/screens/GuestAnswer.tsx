@@ -60,10 +60,10 @@ function GuestForm({ poll }: { poll: Poll }) {
   if (sent) return <GuestFrame>
     <header className="guest-header"><Brand size={28} /></header>
     <h1 className="page-title" ref={done} tabIndex={-1}>回答を送りました</h1>
-    <p className="lead">{name.trim()}さんの回答を受け付けました。</p>
+    <p className="lead receipt-text">{name.trim()}さんの回答を受け付けました。</p>
     <section className="invite-card"><Envelope width={64} height={46} /><h2>{poll.title}</h2><p className="strong">{groupName(poll.group)}<span aria-hidden="true">・</span>回答の控え</p></section>
     <ul className="receipt">{poll.candidates.map((item, i) => <li key={item.date}><span>{dateLabel(item.date)}<span className="num">{item.time}</span></span><VoteMark vote={votes[i]!} withLabel /></li>)}</ul>
-    {comment.trim() && <p className="note">ひとこと：{comment.trim()}</p>}
+    {comment.trim() && <p className="note receipt-text">ひとこと：{comment.trim()}</p>}
     <a className="about-row" href="/"><span><strong>そろうよについて</strong><span>家族や友だちと使える共有カレンダーです。</span></span><Icon name="chevronRight" size={18} /></a>
     <div className="guest-footer"><p>締切までは、このリンクから回答を変更できます。</p><button type="button" className="ghost-btn wide" onClick={() => setSent(false)}><Icon name="edit" size={18} />回答を変更する</button></div>
   </GuestFrame>;

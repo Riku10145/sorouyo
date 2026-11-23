@@ -197,6 +197,7 @@ button:disabled { cursor: default; }
 .notice-card p { font-size: 13px; line-height: 1.8; color: var(--color-text); }
 .strong { font-size: 13px; font-weight: 700; display: flex; gap: 8px; }
 .note { padding: 4px 16px; font-size: 13px; line-height: 1.8; color: var(--color-muted); }
+.receipt-text { overflow-wrap: break-word; }
 .receipt { padding: 4px 16px; }
 .receipt li { display: flex; justify-content: space-between; align-items: center; min-height: 44px; font-size: 14px; font-weight: 700; color: var(--color-ink); }
 .receipt .num { margin-left: 6px; }
