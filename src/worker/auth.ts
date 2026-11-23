@@ -24,7 +24,10 @@ export const safeNext = (next: string | null | undefined, base: string): string 
   try {
     const url = new URL(next, base);
     if (url.origin !== new URL(base).origin) return null;
-    return url.pathname + url.search + url.hash;
+    const path = url.pathname + url.search + url.hash;
+    // `/%2e%2e//host` のような指定が `//host` に正規化されることがある。
+    // `//` で始まる値はスキーム相対URLとして外部サイトへ誘導されるため返さない
+    return path.startsWith('//') ? null : path;
   } catch {
     return null;
   }

@@ -271,6 +271,30 @@ describe('data', () => {
     expect(seen.ownAnswer).toMatchObject({ name: 'B子', votes: { [c1]: 'yes' } });
   });
 
+  test('回答リンクの再発行は旧リンクを同一バッチで失効させ、新リンクだけが有効になる', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const { pollId, token } = await setupPoll(app, db, host);
+
+    const reissued = await req(app, db, `/api/polls/${pollId}/invite`, { method: 'POST', headers: { cookie: host } });
+    expect(reissued.status).toBe(201);
+    const { token: token2 } = await reissued.json() as { token: string };
+    expect(token2).not.toBe(token);
+
+    // 旧リンクは閲覧も送信も拒否される
+    expect((await post(app, db, '/api/invite', { token })).status).toBe(404);
+    const invite = await post(app, db, '/api/invite', { token: token2 });
+    const candId = (await invite.json() as { poll: { candidates: { id: string }[] } }).poll.candidates[0]!.id;
+    expect((await post(app, db, '/api/invite/answer', {
+      token, name: '旧リンク', votes: [{ candidateId: candId, value: 'yes' }],
+    })).status).toBe(404);
+    // 新リンクは従来どおり使える
+    expect((await post(app, db, '/api/invite/answer', {
+      token: token2, name: '新リンク', votes: [{ candidateId: candId, value: 'yes' }],
+    }, await guest(app, db))).status).toBe(200);
+  });
+
   test('確定すると回答は締め切られ、予定ができて、再確定は冪等・別候補は409', async () => {
     const db = makeDb();
     const app = testApp(db);
