@@ -143,7 +143,7 @@ function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry
           {(() => { const Svg = event.stamp && stamps[event.stamp]; return Svg ? <Svg className="stamp" width={44} height={40} /> : null; })()}
           {link && <Icon name="chevronRight" size={18} />}
         </>;
-        return <li key={event.id ?? i} className="day-item">{link ? <a className="day-link" href={link}>{body}</a> : body}</li>;
+        return <li key={event.id ?? i}>{link ? <a className="day-item" href={link}>{body}</a> : <div className="day-item">{body}</div>}</li>;
       })}</ul> : <p className="empty">この日の予定はまだありません。「予定を追加」から登録できます。</p>)}
     </section>
   </AppShell>;
