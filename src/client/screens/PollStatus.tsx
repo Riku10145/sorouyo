@@ -21,6 +21,8 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
       .catch(() => { if (active) setResult({ status: 0 }); });
     return () => { active = false; };
   }, [id]);
+  // hooks は早期returnより前に置く。Promise を保持して同時コピーの重複発行も防ぐ
+  const issuedLink = useRef<Promise<string> | null>(null);
   if (result === 'loading') return null;
   if (!result.poll) {
     const login = result.status === 401;
@@ -55,12 +57,11 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
     })),
     confirmedIndex: confirmedIndex !== null && confirmedIndex >= 0 ? confirmedIndex : null,
   };
-  const issuedLink = useRef<string | null>(null); // コピーのたびに新トークンを発行しないよう保持
-  const link = async () => {
-    if (issuedLink.current === null) {
+  const link = () => {
+    issuedLink.current ??= (async () => {
       const token = await issueInviteToken(remote.id);
-      issuedLink.current = token ? `${window.location.origin}/r#${token}` : '';
-    }
+      return token ? `${window.location.origin}/r#${token}` : '';
+    })();
     return issuedLink.current;
   };
   return <PollStatus poll={poll} selectedDate={selectedDate} expired={expired}
