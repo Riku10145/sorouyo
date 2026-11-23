@@ -3,7 +3,7 @@ import { answerError, dateLabel, dayTone, shortDate, weekday, type Vote } from '
 import { findPoll, type Poll } from '../../shared/sample';
 import { Brand, Icon, InviteHero, VOTE_WORD, VoteMark, VotePicker } from '../design/ui';
 import { Envelope } from '../design/art';
-import { api, fetchInvite, submitAnswer, toJst, type AnswerResult, type InvitePoll } from '../api';
+import { fetchInvite, submitAnswer, toJst, type AnswerResult, type InvitePoll } from '../api';
 
 export function useHashToken() {
   const [token, setToken] = useState(window.location.hash.slice(1).trim());
@@ -44,9 +44,6 @@ const ConfirmedNotice = ({ poll, decided }: { poll: Poll; decided: { date: strin
 
 export function GuestAnswer() {
   const token = useHashToken();
-  useEffect(() => {
-    if (token) api.api.guest.session.$post().catch(() => {});
-  }, [token]);
   const sample = findPoll(token);
   if (sample) {
     if (sample.closed) return <ClosedNotice poll={sample} />;

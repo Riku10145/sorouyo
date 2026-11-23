@@ -32,6 +32,7 @@ npm run dev
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=29229 &
   npm run test:browser
   ```
+- ゲスト回答を開き直すテスト（`scripts/guest-cookie.browser.test.mjs`）には、上記のマイグレーションを適用したローカルD1で動く開発サーバが必要です。テストは一時的な招待をローカルD1に作成し、終了時に削除します。
 
 個別コマンド：`npm test`、`npm run typecheck`、`npm run build`、`npm run test:browser`。Wrangler設定を変更した際は `npm run cf-typegen` で `worker-configuration.d.ts` を再生成します。
 
