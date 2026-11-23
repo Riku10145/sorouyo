@@ -13,7 +13,7 @@ test('unanswered poll action scrolls clear of the sticky confirmation bar', {
     const page = await context.newPage();
     await page.goto(`${process.env.APP_URL ?? 'http://localhost:5173'}/polls/sample`);
     await page.evaluate(() => document.fonts.ready);
-    const answer = page.getByRole('link', { name: '回答する', exact: true });
+    const answer = page.getByRole('button', { name: '回答する', exact: true });
     await answer.scrollIntoViewIfNeeded();
     const geometry = await answer.evaluate(element => {
       const rect = element.getBoundingClientRect();

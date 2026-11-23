@@ -27,6 +27,7 @@ function makeDb(): D1Database {
   const prepare = (sql: string) => {
     let args: unknown[] = [];
     const stmt = {
+      sql,
       bind(...v: unknown[]) { args = v; return stmt; },
       run: async () => {
         const r = db.prepare(sql).run(...args);
@@ -197,6 +198,31 @@ describe('data', () => {
     expect(seen.answers.map(a => a.name).sort()).toEqual(['B子', 'C子']);
   });
 
+  test('新規回答者が上限を超えると429になるが、既存回答の変更は通る', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const { token } = await setupPoll(app, db, host);
+    const invite = await post(app, db, '/api/invite', { token });
+    const { poll } = await invite.json() as { poll: { candidates: { id: string }[] } };
+    const c1 = poll.candidates[0]!.id;
+
+    // 30人が直近1時間に新規回答
+    const first = await guest(app, db);
+    for (let i = 0; i < 30; i++) {
+      const g = i === 0 ? first : await guest(app, db);
+      const r = await post(app, db, '/api/invite/answer', { token, name: `回答者${i}`, votes: [{ candidateId: c1, value: 'yes' }] }, g);
+      expect(r.status).toBe(200);
+    }
+    // 31人目の新規回答は429
+    const extra = await guest(app, db);
+    const limited = await post(app, db, '/api/invite/answer', { token, name: '31人目', votes: [{ candidateId: c1, value: 'yes' }] }, extra);
+    expect(limited.status).toBe(429);
+    // 既に回答済みの人の変更は制限されない
+    const update = await post(app, db, '/api/invite/answer', { token, name: '回答者0', votes: [{ candidateId: c1, value: 'no' }] }, first);
+    expect(update.status).toBe(200);
+  });
+
   test('回答リンクの範囲は対象の調整と自分の回答だけ（他グループの予定・主催者操作は拒否）', async () => {
     const db = makeDb();
     const app = testApp(db);
@@ -244,6 +270,39 @@ describe('data', () => {
     const invite2 = await post(app, db, '/api/invite', { token }, b);
     const { poll: seen } = await invite2.json() as { poll: { ownAnswer?: { name: string; votes: Record<string, string> } } };
     expect(seen.ownAnswer).toMatchObject({ name: 'B子', votes: { [c1]: 'yes' } });
+  });
+
+  test('回答リンクの再発行は旧リンクを同一バッチで失効させ、新リンクだけが有効になる', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const { pollId, token } = await setupPoll(app, db, host);
+
+    // 失効UPDATEと新規INSERTが同一batchで出ることを確認（別トランザクションだと原子性が保てない）
+    const batches: string[][] = [];
+    const origBatch = db.batch.bind(db);
+    db.batch = async (stmts) => {
+      batches.push(stmts.map((s) => (s as unknown as { sql: string }).sql));
+      return origBatch(stmts);
+    };
+    const reissued = await req(app, db, `/api/polls/${pollId}/invite`, { method: 'POST', headers: { cookie: host } });
+    expect(reissued.status).toBe(201);
+    const { token: token2 } = await reissued.json() as { token: string };
+    expect(token2).not.toBe(token);
+    const reissue = batches.find((sqls) => sqls.some((s) => s.includes('INSERT INTO invites')));
+    expect(reissue?.some((s) => s.includes('UPDATE invites SET revoked_at'))).toBe(true);
+
+    // 旧リンクは閲覧も送信も拒否される
+    expect((await post(app, db, '/api/invite', { token })).status).toBe(404);
+    const invite = await post(app, db, '/api/invite', { token: token2 });
+    const candId = (await invite.json() as { poll: { candidates: { id: string }[] } }).poll.candidates[0]!.id;
+    expect((await post(app, db, '/api/invite/answer', {
+      token, name: '旧リンク', votes: [{ candidateId: candId, value: 'yes' }],
+    })).status).toBe(404);
+    // 新リンクは従来どおり使える
+    expect((await post(app, db, '/api/invite/answer', {
+      token: token2, name: '新リンク', votes: [{ candidateId: candId, value: 'yes' }],
+    }, await guest(app, db))).status).toBe(200);
   });
 
   test('確定すると回答は締め切られ、予定ができて、再確定は冪等・別候補は409', async () => {
