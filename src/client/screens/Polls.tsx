@@ -133,7 +133,9 @@ export function PollCreate() {
 
   const toggleDate = (date: string) => setPicked(current => {
     const next = new Set(current);
-    if (next.has(date)) next.delete(date); else next.add(date);
+    if (next.has(date)) next.delete(date);
+    else if (next.size >= 31) { toast('候補日は31日までです'); return current; }
+    else next.add(date);
     return next;
   });
 
@@ -142,13 +144,18 @@ export function PollCreate() {
     if (busy) return; // 二重送信防止
     if (!title.trim()) { setError('予定名を入力してください'); return; }
     if (!dates.length) { setError('候補日を1つ以上選んでください'); return; }
+    if (dates.length > 31) { setError('候補日は31日までに減らしてください'); return; }
+    // 締切入力は日本時間として解釈し、過去の締切は回答できない調整になるため弾く
+    if (deadline && new Date(`${deadline}:00+09:00`).getTime() <= Date.now()) {
+      setError('回答締切は未来の日時にしてください'); return;
+    }
     setBusy(true);
     setError(null);
     const created = await createPoll(selectedGroup.id, {
       title: title.trim(),
-      deadlineAt: deadline ? new Date(deadline).toISOString() : null,
+      deadlineAt: deadline ? new Date(`${deadline}:00+09:00`).toISOString() : null,
       candidates: dates.map(date => ({ date, time: times[date] || null })),
-    });
+    }).catch(() => null); // 通信断もフォームを保持して再送可能に
     setBusy(false);
     if (!created) { setError('作成できませんでした。時間をおいて再度お試しください。'); return; }
     setResult(created);
@@ -222,7 +229,7 @@ export function PollCreate() {
           </li>)}
         </ul>
       </fieldset>
-      <label className="field">回答締切（任意）
+      <label className="field">回答締切（任意・日本時間）
         <input type="datetime-local" value={deadline} min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)} onChange={e => setDeadline(e.target.value)} />
       </label>
       {error && <p className="form-error" role="alert">{error}</p>}

@@ -115,7 +115,10 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
 
   const group: DisplayGroup = { id: poll.token || poll.title, name: poll.group.name, color: poll.group.color ?? null, className: poll.group.className };
   return <AppShell active="polls" selectedDate={selectedDate} groups={[group]} subpage>
-    <div className="m-only m-back"><a className="text-btn" href="/polls"><Icon name="chevronLeft" size={20} />日程調整</a></div>
+    <div className="m-only m-back">
+      <a className="text-btn" href="/polls"><Icon name="chevronLeft" size={20} />日程調整</a>
+      <button type="button" className="text-btn" onClick={copy}><Icon name="copy" size={18} />リンク</button>
+    </div>
     <div className="desk-only poll-toolbar">
       <p className="page-label">日程調整</p>
       <div className="toolbar-actions">
@@ -174,7 +177,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
     </section>
 
     {canConfirm && <div className="confirm-bar">
-      <p className="desk-only best-note"><span>{chosen === best ? '参加できる人が最多' : '選択中の候補日'}</span><strong>{dateLabel(candidate.date)} {timeLabel(candidate.time)}</strong></p>
+      <p className="desk-only best-note"><span>{confirmed !== null ? '確定した候補日' : chosen === best ? '参加できる人が最多' : '選択中の候補日'}</span><strong>{dateLabel((confirmed !== null ? poll.candidates[confirmed]! : candidate).date)} {timeLabel((confirmed !== null ? poll.candidates[confirmed]! : candidate).time)}</strong></p>
       <button type="button" className="primary-btn wide" disabled={confirmed !== null} onClick={confirm}>
         <Icon name="check" size={18} className="desk-only" />{confirmed !== null ? '確定しました' : <><span className="m-only">{confirmLabel}</span><span className="desk-only">この日程に確定する</span></>}
       </button>
