@@ -105,15 +105,19 @@ function GuestForm({ poll, initial, onSubmit }: {
   const [comment, setComment] = useState(initial?.comment ?? '');
   const [tried, setTried] = useState(false);
   const error = tried ? answerError(votes, name) : '';
-  const [sent, setSent] = useState(false);
+  const [view, setView] = useState<'answering' | 'sent' | 'editing'>('answering');
   const [sending, setSending] = useState(false);
   const [closed, setClosed] = useState(false);
   const [sendError, setSendError] = useState(false);
   const [denied, setDenied] = useState(false);
   const form = useRef<HTMLFormElement>(null);
   const done = useRef<HTMLHeadingElement>(null);
+  const candidates = useRef<HTMLHeadingElement>(null);
   const nameMissing = error !== '' && votes.every(vote => vote !== null);
-  useEffect(() => { if (sent) { window.scrollTo({ top: 0 }); done.current?.focus(); } }, [sent]);
+  useEffect(() => {
+    if (view === 'sent') { window.scrollTo({ top: 0 }); done.current?.focus(); }
+    else if (view === 'editing') candidates.current?.focus();
+  }, [view]);
   const submit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     setTried(true);
@@ -122,7 +126,7 @@ function GuestForm({ poll, initial, onSubmit }: {
       (onSubmit ?? (() => Promise.resolve<AnswerResult>('ok')))(votes, name.trim(), comment.trim())
         .then(result => {
           setSending(false);
-          if (result === 'ok') setSent(true);
+          if (result === 'ok') setView('sent');
           else if (result === 'closed') setClosed(true);
           else if (result === 'forbidden') setDenied(true);
           else setSendError(true);
@@ -135,7 +139,7 @@ function GuestForm({ poll, initial, onSubmit }: {
   };
 
   if (closed) return <ClosedNotice poll={poll} />;
-  if (sent) return <GuestFrame>
+  if (view === 'sent') return <GuestFrame>
     <header className="guest-header"><Brand size={28} /></header>
     <h1 className="page-title" ref={done} tabIndex={-1}>回答を送りました</h1>
     <p className="lead receipt-text">{name.trim()}さんの回答を受け付けました。</p>
@@ -143,7 +147,7 @@ function GuestForm({ poll, initial, onSubmit }: {
     <ul className="receipt">{poll.candidates.map((item, i) => <li key={item.id ?? item.date}><span>{dateLabel(item.date)}<span className="num">{item.time}</span></span><VoteMark vote={votes[i]!} withLabel /></li>)}</ul>
     {comment.trim() && <p className="note receipt-text">ひとこと：{comment.trim()}</p>}
     <a className="about-row" href="/"><span><strong>そろうよについて</strong><span>家族や友だちと使える共有カレンダーです。</span></span><Icon name="chevronRight" size={18} /></a>
-    <div className="guest-footer"><p>締切までは、このリンクから回答を変更できます。</p><button type="button" className="ghost-btn wide" onClick={() => setSent(false)}><Icon name="edit" size={18} />回答を変更する</button></div>
+    <div className="guest-footer"><p>締切までは、このリンクから回答を変更できます。</p><button type="button" className="ghost-btn wide" onClick={() => setView('editing')}><Icon name="edit" size={18} />回答を変更する</button></div>
   </GuestFrame>;
 
   return <GuestFrame wide>
@@ -156,7 +160,7 @@ function GuestForm({ poll, initial, onSubmit }: {
         <p className="desk-only side-foot"><strong>回答締切　{deadlineText(poll)}</strong><span>アプリ・ログイン不要</span></p>
       </div>
       <form className="guest-form" ref={form} onSubmit={submit} noValidate>
-        <div className="vote-head"><h2>候補日</h2><span aria-hidden="true">{Object.values(VOTE_WORD).map(word => <span key={word}>{word}</span>)}</span></div>
+        <div className="vote-head"><h2 ref={candidates} tabIndex={-1}>候補日</h2><span aria-hidden="true">{Object.values(VOTE_WORD).map(word => <span key={word}>{word}</span>)}</span></div>
         <ul className="vote-rows">{poll.candidates.map((item, i) => <li key={item.id ?? item.date} className="vote-row">
           <span className="cand-date"><span className="num m-only">{shortDate(item.date)}</span><small className={`m-only ${dayTone(item.date) ?? ''}`}>{weekday(item.date)}</small><strong className="desk-only">{dateLabel(item.date)}</strong><span className="cand-time num">{item.time}〜</span></span>
           <VotePicker label={`${dateLabel(item.date)} ${item.time}〜`} describedBy={error ? 'answer-error' : undefined} value={votes[i] ?? null} onChange={vote => setVotes(current => current.map((value, j) => (j === i ? vote : value)))} />
