@@ -25,8 +25,13 @@ npm run dev
 - `npm run check` でブラウザ・Workerの型検査、共有ロジック・APIのテスト、ビルドを実行します。
 - `npm run preview` でビルド済みアプリをWorkersランタイムで配信します。`/r` の直接アクセスもSPAに戻ります。
 - `/api/health` は `{"ok":true}`、不明な `/api/*` はJSONの404を返します。
-- `npm run test:browser` はサイドバースクロールの回帰を確認するブラウザテストです。`npm run dev` と `--remote-debugging-port=29229` 付きのChromeを起動してから実行します。接続先は `CDP_URL`（既定 `http://localhost:29229`）と `APP_URL`（既定 `http://localhost:5173`）で変更できます。通常の `node --test` ではスキップされます。
+- `npm run test:browser` は確定バーとサイドバースクロールの回帰を確認するブラウザテストです（`scripts/*.browser.test.mjs`）。`npm run dev` を起動したうえで、CDP接続可能なChromeを別途起動してから実行します。接続先・起動先は `CDP_URL`（既定 `http://localhost:29229`）と `APP_URL`（既定 `http://localhost:5173`）で変更できます。通常の `node --test` ではスキップされます。
+  ```sh
+  npm run dev &
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=29229 &
+  npm run test:browser
+  ```
 
-個別コマンド：`npm test`、`npm run typecheck`、`npm run build`。Wrangler設定を変更した際は `npm run cf-typegen` で `worker-configuration.d.ts` を再生成します。
+個別コマンド：`npm test`、`npm run typecheck`、`npm run build`、`npm run test:browser`。Wrangler設定を変更した際は `npm run cf-typegen` で `worker-configuration.d.ts` を再生成します。
 
 `src/client/` はPaperのデザインに合わせた画面（`design/` に共通部品とSVG）、`src/worker/` はAPI（`AppType` をクライアントに型のみ共有）、`src/shared/` はPoCから移植した日付・投票集計の純粋関数です。URLフラグメントのトークンはAPIやログに送信しません。回答の保存機能は未実装です。
