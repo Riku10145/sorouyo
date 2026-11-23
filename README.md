@@ -22,11 +22,11 @@ npm run dev
 ## 確認手順
 
 - ブラウザの幅を375pxと1440pxにして `/`（月カレンダー）、`/polls/sample`（回答状況）、`/r#sample`（ゲストの回答）を開きます。サンプルデータとPaperの対応は [docs/paper-screen-map.md](docs/paper-screen-map.md) を参照します。
-- `/r#sample-closed` は締切後、それ以外のトークンや `/r` は無効な招待リンクの画面を表示します。
+- `/r#sample-closed` は締切後、無効なトークンや `/r` は無効な招待リンクの画面を表示します。通信エラーなどで招待を読み込めない場合は、同じリンクで再試行できます。
 - `npm run check` でブラウザ・Workerの型検査、共有ロジック・APIのテスト、ビルドを実行します。
 - `npm run preview` でビルド済みアプリをWorkersランタイムで配信します。`/r` の直接アクセスもSPAに戻ります。
 - `/api/health` は `{"ok":true}`、不明な `/api/*` はJSONの404を返します。
-- `npm run test:browser` はカレンダーと予定追加シートのフォーカス、確定バー、下部ナビのフォーカス位置、サイドバースクロール、キーボードフォーカスのコントラストの回帰を確認するブラウザテストです（`scripts/*.browser.test.mjs`）。`npm run dev` を起動したうえで、CDP接続可能なChromeを別途起動してから実行します。接続先・起動先は `CDP_URL`（既定 `http://localhost:29229`）と `APP_URL`（既定 `http://localhost:5173`）で変更できます。通常の `node --test` ではスキップされます。
+- `npm run test:browser` はカレンダーと予定追加シートのフォーカス、確定バー、下部ナビのフォーカス位置、サイドバースクロール、キーボードフォーカスのコントラスト、招待リンクの読み込みと再試行の回帰を確認するブラウザテストです（`scripts/*.browser.test.mjs`）。`npm run dev` を起動したうえで、CDP接続可能なChromeを別途起動してから実行します。接続先・起動先は `CDP_URL`（既定 `http://localhost:29229`）と `APP_URL`（既定 `http://localhost:5173`）で変更できます。通常の `node --test` ではスキップされます。
   ```sh
   npm run dev &
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=29229 &
