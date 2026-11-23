@@ -125,6 +125,7 @@ button:disabled { cursor: default; }
 .day-text span { font-size: 12px; font-weight: 500; color: var(--color-muted); }
 .stamp { flex: none; }
 .empty { padding: 16px 0; color: var(--color-muted); font-size: 14px; }
+.day-load-error { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 
 /* 招待のヒーロー */
 /* ヒーローと進捗で行が折り返したときの間隔は invite-copy と同じ4px、列間は従来の8px */

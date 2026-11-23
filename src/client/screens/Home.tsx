@@ -15,6 +15,8 @@ interface ViewEvent {
   time?: string | null; stamp?: Stamp; group: DisplayGroup;
 }
 
+type MonthLoad = { status: 'loading' } | { status: 'error' } | { status: 'loaded'; events: ViewEvent[] };
+
 const sampleView = (events: readonly CalendarEvent[]): ViewEvent[] =>
   events.map(event => ({
     ...event,
@@ -26,8 +28,10 @@ function Pill({ event, long = false }: { event: ViewEvent; long?: boolean }) {
   return <span className={`pill ${groupCls(event.group)}`} style={groupVars(event.group)} title={`${event.group.name}：${event.title}`}>{label}</span>;
 }
 
-function CalendarView({ today, initialDate, groups, events, onMonthChange, onAdd, dayLink }: {
+function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry, onMonthChange, onAdd, dayLink }: {
   today: string; initialDate: string; groups: DisplayGroup[]; events: ViewEvent[];
+  monthStatus?: MonthLoad['status'];
+  onRetry?: () => void;
   onMonthChange?: (month: string) => void;
   onAdd?: (date: string) => void;
   dayLink?: (event: ViewEvent) => string | null;
@@ -41,6 +45,10 @@ function CalendarView({ today, initialDate, groups, events, onMonthChange, onAdd
   const [year, monthNumber] = month.split('-').map(Number) as [number, number];
   const Art = monthArt[monthNumber - 1]!;
   const dayEvents = eventsOn(selected);
+  const dayNotice = monthStatus === 'error' ? <div className="day-load-error">
+    <div className="form-error" role="alert">予定を読み込めませんでした。</div>
+    {onRetry && <button type="button" className="ghost-btn" onClick={onRetry}>再試行</button>}
+  </div> : monthStatus === 'loading' ? <p className="empty" role="status">予定を読み込み中…</p> : null;
   const toggle = (group: string) => setVisible(current => {
     const next = new Set(current);
     if (next.has(group)) next.delete(group); else next.add(group);
@@ -73,7 +81,7 @@ function CalendarView({ today, initialDate, groups, events, onMonthChange, onAdd
   const add = (date: string) => onAdd ? onAdd(date) : notReady('予定の追加');
   const sideEvents: SideEvent[] = dayEvents.map(event => ({ id: event.id, title: event.title, time: event.time, group: event.group, link: dayLink?.(event) ?? undefined }));
 
-  return <AppShell active="calendar" selectedDate={selected} groups={groups} visible={visible} onToggleGroup={groups.length > 1 ? toggle : undefined} dayEvents={sideEvents}>
+  return <AppShell active="calendar" selectedDate={selected} groups={groups} visible={visible} onToggleGroup={groups.length > 1 ? toggle : undefined} dayEvents={sideEvents} dayNotice={dayNotice}>
     <header className="m-header">
       <Brand />
       <a className="text-btn" href="/settings"><Icon name="settings" size={20} />設定</a>
@@ -123,10 +131,10 @@ function CalendarView({ today, initialDate, groups, events, onMonthChange, onAdd
 
     <section className="day-panel" aria-labelledby="day-heading">
       <div className="day-head">
-        <h2 id="day-heading">{dateLabel(selected)}<span className="count">{dayEvents.length}件</span></h2>
+        <h2 id="day-heading">{dateLabel(selected)}{!dayNotice && <span className="count">{dayEvents.length}件</span>}</h2>
         <button type="button" className="primary-btn" onClick={() => add(selected)}><Icon name="plus" size={18} />予定を追加</button>
       </div>
-      {dayEvents.length ? <ul className="day-list">{dayEvents.map((event, i) => {
+      {dayNotice ?? (dayEvents.length ? <ul className="day-list">{dayEvents.map((event, i) => {
         const link = dayLink?.(event);
         const body = <>
           <span className="day-time num">{event.time ?? '終日'}</span>
@@ -136,7 +144,7 @@ function CalendarView({ today, initialDate, groups, events, onMonthChange, onAdd
           {link && <Icon name="chevronRight" size={18} />}
         </>;
         return <li key={event.id ?? i} className="day-item">{link ? <a className="day-link" href={link}>{body}</a> : body}</li>;
-      })}</ul> : <p className="empty">この日の予定はまだありません。「予定を追加」から登録できます。</p>}
+      })}</ul> : <p className="empty">この日の予定はまだありません。「予定を追加」から登録できます。</p>)}
     </section>
   </AppShell>;
 }
@@ -183,18 +191,19 @@ function AddEventSheet({ groups, date, onClose, onCreated }: {
 
 function RemoteHome({ today, initialDate }: { today: string; initialDate: string }) {
   const [groups, setGroups] = useState<GroupInfo[] | 'error' | null>(null);
-  const [months, setMonths] = useState<Map<string, ViewEvent[]>>(new Map());
+  const [months, setMonths] = useState<Map<string, MonthLoad>>(new Map());
   const [viewMonth, setViewMonth] = useState(initialDate.slice(0, 7));
   const [addDate, setAddDate] = useState<string | null>(null);
-  const cache = useRef<Map<string, ViewEvent[]>>(new Map());
+  const cache = useRef<Map<string, MonthLoad>>(new Map());
 
   const loadMonth = async (month: string, refresh = false) => {
     if (!refresh && cache.current.has(month)) return;
-    cache.current.set(month, []); // 取得中は空でマークし、重複fetchを防ぐ
+    const request = { status: 'loading' } as const;
+    cache.current.set(month, request);
+    setMonths(new Map(cache.current));
     const events = await fetchCalendar(month).catch(() => null);
-    // 失敗はキャッシュしない（空が確定扱いになりリロードまで戻らないのを防ぐ）
-    if (events === null) { cache.current.delete(month); return; }
-    cache.current.set(month, events.map(toView));
+    if (cache.current.get(month) !== request) return;
+    cache.current.set(month, events === null ? { status: 'error' } : { status: 'loaded', events: events.map(toView) });
     setMonths(new Map(cache.current));
   };
 
@@ -241,7 +250,9 @@ function RemoteHome({ today, initialDate }: { today: string; initialDate: string
     <CalendarView
       today={today} initialDate={initialDate}
       groups={displayGroups}
-      events={[...months.values()].flat()}
+      events={[...months.values()].flatMap(load => load.status === 'loaded' ? load.events : [])}
+      monthStatus={months.get(viewMonth)?.status ?? 'loading'}
+      onRetry={() => void loadMonth(viewMonth, true)}
       onMonthChange={month => {
         setViewMonth(month);
         void loadMonth(shiftedMonth(month, -1));
