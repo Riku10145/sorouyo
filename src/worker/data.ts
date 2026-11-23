@@ -402,7 +402,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     return c.json({ poll: { id: pollId }, token } as const, 201);
   })
 
-  // 回答リンクの再発行（メンバー以上）。既存リンクは無効化しない
+  // 回答リンクの再発行（メンバー以上）。漏えい時に使えるよう、旧リンクは同一バッチで失効させる
   .post('/polls/:id/invite', async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const subject = await subjectOf(c);
@@ -410,7 +410,12 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const poll = await get<PollRow>(c.env.DB.prepare(`SELECT * FROM polls WHERE id = ?`).bind(c.req.param('id')).first());
     if (!poll) return c.json({ error: 'not_found' } as const, 404);
     if (!(await memberRole(c, poll.group_id, subject.userId))) return c.json({ error: 'forbidden' } as const, 403);
-    const token = await newInvite(c, 'answer', { pollId: poll.id }, subject.userId);
+    const token = newToken();
+    await c.env.DB.batch([
+      c.env.DB.prepare(`UPDATE invites SET revoked_at = ? WHERE poll_id = ? AND purpose = 'answer' AND revoked_at IS NULL`).bind(now(), poll.id),
+      c.env.DB.prepare(`INSERT INTO invites (id, purpose, poll_id, token_hash, created_by, created_at) VALUES (?, 'answer', ?, ?, ?, ?)`)
+        .bind(crypto.randomUUID(), poll.id, await sha256(token), subject.userId, now()),
+    ]);
     return c.json({ token } as const, 201);
   })
 
@@ -637,6 +642,13 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
 
     const ids = subject.userId ? { userId: subject.userId } : { guestId: subject.guestId! };
     const key = ids.userId ? `u:${ids.userId}` : `g:${ids.guestId}`;
+
+    // リンク単位の簡易レート制限: 1時間に新しい回答者は30人まで。ゲスト識別子を取り直した連投への抑止
+    const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const recent = await get<{ n: number }>(c.env.DB.prepare(
+      `SELECT COUNT(DISTINCT respondent_key) AS n FROM answers WHERE poll_id = ? AND respondent_key <> ? AND created_at > ?`
+    ).bind(poll.id, key, hourAgo).first());
+    if ((recent?.n ?? 0) >= 30) return c.json({ error: 'rate_limited' } as const, 429);
 
     // 対象調整に属する候補だけを受理し、同一候補の重複送信は最初の1件に絞る
     const validIds = new Set(
