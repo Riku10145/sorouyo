@@ -13,6 +13,25 @@ export interface AuthEnv {
 
 export const SESSION_COOKIE = 'sorouyo_session';
 export const STATE_COOKIE = 'sorouyo_state';
+export const NEXT_COOKIE = 'sorouyo_next';
+
+/**
+ * ログイン後の戻り先の検証。文字列の先頭だけでは `/\evil.com` のような指定も通ってしまうため、
+ * アプリ自身のオリジンを基準にURLとして解析し、同じオリジンのときだけ正規化済みのパスを返す。
+ */
+export const safeNext = (next: string | null | undefined, base: string): string | null => {
+  if (!next || next.length > 500) return null;
+  try {
+    const url = new URL(next, base);
+    if (url.origin !== new URL(base).origin) return null;
+    const path = url.pathname + url.search + url.hash;
+    // `/%2e%2e//host` のような指定が `//host` に正規化されることがある。
+    // `//` で始まる値はスキーム相対URLとして外部サイトへ誘導されるため返さない
+    return path.startsWith('//') ? null : path;
+  } catch {
+    return null;
+  }
+};
 export const GUEST_COOKIE = 'sorouyo_guest';
 
 export interface SessionUser {
@@ -138,10 +157,27 @@ export const verifyGuestId = async (value: string | undefined, env: AuthEnv | un
   }
 };
 
-const checkOrigin = (c: Context): boolean => {
+export const checkOrigin = (c: Context): boolean => {
   const origin = c.req.header('origin');
   return !origin || origin === new URL(c.req.url).origin;
 };
+
+const guestCookieOptions = (c: Context) => ({
+  httpOnly: true,
+  secure: secure(c),
+  sameSite: 'Lax' as const,
+  path: '/',
+  maxAge: 60 * 60 * 24 * 365,
+});
+
+/** ゲスト用Cookieを確立してguestIdを返す。署名の有効な既存Cookieがあれば再利用する。 */
+export async function ensureGuest(c: Context): Promise<string> {
+  const existing = await verifyGuestId(getCookie(c, GUEST_COOKIE), c.env as AuthEnv | undefined);
+  if (existing) return existing;
+  const guestId = crypto.randomUUID();
+  setCookie(c, GUEST_COOKIE, await signGuestId(guestId, c.env as AuthEnv | undefined), guestCookieOptions(c));
+  return guestId;
+}
 
 /**
  * セッションCookieを検証してログイン中の利用者を返す。期限切れはSDKで更新し、
@@ -194,13 +230,21 @@ export function buildAuthRoutes(getDeps: GetAuthDeps) {
       const deps = getDeps(c);
       if (!deps) return c.json({ error: 'auth_not_configured' } as const, 503);
       const state = crypto.randomUUID();
-      setCookie(c, STATE_COOKIE, state, {
+      const stateCookie = {
         httpOnly: true,
         secure: secure(c),
-        sameSite: 'Lax',
+        sameSite: 'Lax' as const,
         path: '/',
         maxAge: 600,
-      });
+      };
+      setCookie(c, STATE_COOKIE, state, stateCookie);
+      // ログイン後の戻り先（例: /join#<token>）。同一オリジンの相対パスのみ受け付ける
+      const next = safeNext(c.req.query('next'), c.req.url);
+      if (next) {
+        setCookie(c, NEXT_COOKIE, next, stateCookie);
+      } else {
+        deleteCookie(c, NEXT_COOKIE, { path: '/' });
+      }
       const url = deps.workos.userManagement.getAuthorizationUrl({
         clientId: deps.config.clientId,
         redirectUri: deps.config.redirectUri,
@@ -226,7 +270,9 @@ export function buildAuthRoutes(getDeps: GetAuthDeps) {
         });
         if (!result.sealedSession) return c.json({ error: 'session_unsealed' } as const, 502);
         setCookie(c, SESSION_COOKIE, result.sealedSession, sessionCookieOptions(c));
-        return c.redirect('/settings', 302);
+        const next = getCookie(c, NEXT_COOKIE);
+        deleteCookie(c, NEXT_COOKIE, { path: '/' });
+        return c.redirect(safeNext(next, c.req.url) ?? '/settings', 302);
       } catch {
         return c.json({ error: 'auth_failed' } as const, 401);
       }
@@ -269,15 +315,6 @@ export const authRoutes = buildAuthRoutes(authDeps);
 export const guestRoutes = new Hono<{ Bindings: AuthEnv }>()
   .post('/session', async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
-    const existing = await verifyGuestId(getCookie(c, GUEST_COOKIE), c.env);
-    if (!existing) {
-      setCookie(c, GUEST_COOKIE, await signGuestId(crypto.randomUUID(), c.env), {
-        httpOnly: true,
-        secure: secure(c),
-        sameSite: 'Lax',
-        path: '/',
-        maxAge: 60 * 60 * 24 * 365,
-      });
-    }
+    await ensureGuest(c);
     return c.body(null, 204);
   });

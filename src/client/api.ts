@@ -1,8 +1,171 @@
 import { useEffect, useState } from 'react';
 import { hc } from 'hono/client';
 import type { AppType } from '../worker';
+import type { Vote } from '../shared/model';
 
 export const api = hc<AppType>(window.location.origin);
+
+// --- #3 共有データAPI ---------------------------------------------------------
+
+export interface InvitePoll {
+  id: string;
+  title: string;
+  status: 'open' | 'confirmed';
+  accepting: boolean;
+  deadlineAt: string | null;
+  group: { id: string; name: string; color: string | null };
+  host: string | null;
+  candidates: { id: string; date: string; startTime: string | null }[];
+  confirmed: { date: string; startTime: string | null } | null;
+  ownAnswer: { name: string; comment: string | null; votes: Record<string, Vote> } | null;
+}
+
+export interface MemberPoll {
+  id: string;
+  title: string;
+  status: 'open' | 'confirmed';
+  deadlineAt: string | null;
+  confirmedCandidateId: string | null;
+  group: { id: string; name: string; color: string | null };
+  creatorId: string;
+  hostName: string | null;
+  candidates: { id: string; date: string; startTime: string | null }[];
+  answers: { id: string; name: string; comment: string | null; own: boolean; votes: Record<string, Vote>; createdAt: string }[];
+}
+
+export type InviteResult = { status: 'ok'; poll: InvitePoll } | { status: 'invalid' };
+
+export async function fetchInvite(token: string): Promise<InviteResult> {
+  const response = await api.api.invite.$post({ json: { token } });
+  if (response.status === 404) return { status: 'invalid' };
+  if (!response.ok) return { status: 'invalid' };
+  return { status: 'ok', poll: (await response.json()).poll as InvitePoll };
+}
+
+export type AnswerResult = 'ok' | 'closed' | 'invalid' | 'forbidden' | 'error';
+
+export async function submitAnswer(
+  token: string, name: string, comment: string, votes: { candidateId: string; value: Vote }[],
+): Promise<AnswerResult> {
+  const response = await api.api.invite.answer.$post({ json: { token, name, comment, votes } });
+  if (response.status === 410) return 'closed';
+  if (response.status === 403) return 'forbidden';
+  if (response.status === 404) return 'invalid';
+  return response.ok ? 'ok' : 'error';
+}
+
+export async function fetchMemberPoll(id: string): Promise<{ status: number; poll?: MemberPoll }> {
+  const response = await api.api.polls[':id'].$get({ param: { id } });
+  if (!response.ok) return { status: response.status };
+  return { status: 200, poll: (await response.json()).poll as MemberPoll };
+}
+
+export async function confirmCandidate(id: string, candidateId: string): Promise<boolean> {
+  const response = await api.api.polls[':id'].confirm.$post({ param: { id }, json: { candidateId } });
+  return response.ok;
+}
+
+export async function issueInviteToken(id: string): Promise<string | null> {
+  const response = await api.api.polls[':id'].invite.$post({ param: { id } });
+  if (!response.ok) return null;
+  return (await response.json()).token;
+}
+
+// --- グループ・予定・参加リンク（#24 #25 #26） ----------------------------------
+
+export interface GroupInfo { id: string; name: string; color: string | null; role: 'admin' | 'member' }
+export interface GroupDetail {
+  group: GroupInfo;
+  members: { id: string; name: string; role: 'admin' | 'member'; you: boolean }[];
+  counts: { events: number; polls: number; members: number };
+}
+export interface CalEvent {
+  id: string; date: string; startTime: string | null; title: string;
+  group: { id: string; name: string; color: string | null };
+  sourcePollId: string | null;
+}
+export interface JoinPreview {
+  group: { id: string; name: string; color: string | null };
+  inviterName: string | null;
+  memberCount: number;
+  upcoming: { date: string; title: string }[];
+  member: boolean;
+}
+
+export async function fetchGroups(): Promise<GroupInfo[] | null> {
+  const response = await api.api.groups.$get();
+  if (!response.ok) return null;
+  return (await response.json()).groups as GroupInfo[];
+}
+
+export async function createGroup(name: string, color: string | null): Promise<GroupInfo | null> {
+  const response = await api.api.groups.$post({ json: { name, color } });
+  if (!response.ok) return null;
+  return (await response.json()).group as GroupInfo;
+}
+
+export async function updateGroup(id: string, name: string, color: string | null): Promise<GroupInfo | null> {
+  const response = await api.api.groups[':id'].$patch({ param: { id }, json: { name, color } });
+  if (!response.ok) return null;
+  return (await response.json()).group as GroupInfo;
+}
+
+export async function deleteGroup(id: string): Promise<boolean> {
+  const response = await api.api.groups[':id'].$delete({ param: { id } });
+  return response.status === 204;
+}
+
+export async function fetchGroup(id: string): Promise<{ status: number; detail?: GroupDetail }> {
+  const response = await api.api.groups[':id'].$get({ param: { id } });
+  if (!response.ok) return { status: response.status };
+  return { status: 200, detail: await response.json() as GroupDetail };
+}
+
+export async function issueGroupInvite(id: string): Promise<string | null> {
+  const response = await api.api.groups[':id'].invites.$post({ param: { id } });
+  if (!response.ok) return null;
+  return (await response.json()).token;
+}
+
+export async function previewJoin(token: string): Promise<JoinPreview | null> {
+  const response = await api.api.groups.join.preview.$post({ json: { token } });
+  if (!response.ok) return null;
+  return await response.json() as JoinPreview;
+}
+
+export type JoinResult = { status: 'joined'; already: boolean; group: GroupInfo } | { status: 'invalid' } | { status: 'login' } | { status: 'error' };
+export async function joinGroup(token: string): Promise<JoinResult> {
+  const response = await api.api.groups.join.$post({ json: { token } });
+  if (response.status === 404) return { status: 'invalid' };
+  if (response.status === 401) return { status: 'login' };
+  if (!response.ok) return { status: 'error' };
+  const data = await response.json();
+  return { status: 'joined', already: data.already, group: data.group as GroupInfo };
+}
+
+export async function fetchCalendar(month: string): Promise<CalEvent[] | null> {
+  const response = await api.api.calendar.$get({ query: { month } });
+  if (!response.ok) return null;
+  return (await response.json()).events as CalEvent[];
+}
+
+export async function createEvent(groupId: string, body: { date: string; title: string; time?: string | null }): Promise<{ id: string } | null> {
+  const response = await api.api.groups[':id'].events.$post({ param: { id: groupId }, json: { date: body.date, title: body.title, time: body.time ?? null } });
+  if (!response.ok) return null;
+  return (await response.json()).event;
+}
+
+export async function fetchEvent(id: string): Promise<{ status: number; event?: CalEvent }> {
+  const response = await api.api.events[':id'].$get({ param: { id } });
+  if (!response.ok) return { status: response.status };
+  return { status: 200, event: (await response.json()).event as CalEvent };
+}
+
+/** UTCのISOを画面表示用の日本時間に変換する。 */
+export const toJst = (iso: string): { date: string; time: string } => ({
+  date: new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso)),
+  time: new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso)),
+});
 
 export type Me = { user: { id: string; email: string; firstName: string | null; lastName: string | null } };
 

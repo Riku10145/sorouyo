@@ -6,5 +6,5 @@
     "skipLibCheck": true, "verbatimModuleSyntax": true,
     "types": ["vite/client"]
   },
-  "include": ["src/client", "src/shared"]
+  "include": ["src/client", "src/shared", "worker-configuration.d.ts"]
 }
