@@ -5,6 +5,7 @@ import { Icon, InviteHero, VoteMark, notReady, toast } from '../design/ui';
 import { AppShell } from './Shell';
 
 const guestUrl = (poll: Poll) => `${window.location.origin}/r#${poll.token}`;
+const deadlineText = (poll: Poll) => `${dateLabel(poll.deadline.date)}${poll.deadline.time}`;
 
 export function PollStatus({ poll, selectedDate }: { poll: Poll; selectedDate: string }) {
   const best = bestCandidate(poll);
@@ -27,6 +28,7 @@ export function PollStatus({ poll, selectedDate }: { poll: Poll; selectedDate: s
     <Icon name="check" size={18} />{dateLabel(poll.candidates[confirmed]!.date)} {poll.candidates[confirmed]!.time}〜に決まりました。
   </p>;
   const progress = <p className="progress"><span className="bars" aria-hidden="true">{poll.answers.map((_, i) => <i key={i} className={i < respondents ? 'on' : ''} />)}</span>{poll.answers.length}人中{respondents}人が回答</p>;
+  const deadline = deadlineText(poll);
 
   return <AppShell active="polls" selectedDate={selectedDate} subpage>
     <div className="m-only m-back"><a className="text-btn" href="/"><Icon name="chevronLeft" size={20} />日程調整</a></div>
@@ -38,9 +40,9 @@ export function PollStatus({ poll, selectedDate }: { poll: Poll; selectedDate: s
         <a className="soft-btn" href={`/r#${poll.token}`}><Icon name="edit" size={18} />自分の回答を入力</a>
       </div>
     </div>
-    <InviteHero poll={poll} eyebrow={`${groupName(poll.group)}の日程調整`}>
+    <InviteHero poll={poll} eyebrow={`${groupName(poll.group)}の日程調整`} footer={<p className="m-only hero-deadline">回答締切 {deadline}</p>}>
       <span className="m-only">{progress}</span>
-      <p className="desk-only hero-meta">{poll.answers.length}人中{respondents}人が回答<span aria-hidden="true">・</span>回答締切 {dateLabel(poll.deadline.date)}{poll.deadline.time}</p>
+      <p className="desk-only hero-meta">{poll.answers.length}人中{respondents}人が回答<span aria-hidden="true">・</span>回答締切 {deadline}</p>
     </InviteHero>
     {confirmedBanner}
 

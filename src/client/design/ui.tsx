@@ -60,7 +60,7 @@ export function VotePicker({ value, onChange, label, describedBy }: { value: Vot
   </div>;
 }
 
-export function InviteHero({ poll, eyebrow, children, compact = false }: { poll: Poll; eyebrow?: string; children?: ReactNode; compact?: boolean }) {
+export function InviteHero({ poll, eyebrow, children, footer, compact = false }: { poll: Poll; eyebrow?: string; children?: ReactNode; footer?: ReactNode; compact?: boolean }) {
   return <section className={`invite-hero${compact ? ' compact' : ''}`} aria-label={`${poll.title}の招待`}>
     <div className="invite-copy">
       {eyebrow && <p className="eyebrow">{eyebrow}</p>}
@@ -68,6 +68,7 @@ export function InviteHero({ poll, eyebrow, children, compact = false }: { poll:
       {children}
     </div>
     <Envelope className="envelope" width={128} height={92} />
+    {footer}
   </section>;
 }
 
