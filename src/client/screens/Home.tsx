@@ -29,7 +29,7 @@ function Pill({ event, long = false }: { event: ViewEvent; long?: boolean }) {
 function CalendarView({ today, initialDate, groups, events, onMonthChange, onAdd, dayLink }: {
   today: string; initialDate: string; groups: DisplayGroup[]; events: ViewEvent[];
   onMonthChange?: (month: string) => void;
-  onAdd?: (date: string) => void;
+  onAdd?: (date: string, trigger: HTMLButtonElement) => void;
   dayLink?: (event: ViewEvent) => string | null;
 }) {
   const [selected, setSelected] = useState(initialDate);
@@ -70,7 +70,7 @@ function CalendarView({ today, initialDate, groups, events, onMonthChange, onAdd
     go(date);
   };
   const focusable = cells.includes(selected) ? selected : cells.find(date => date.startsWith(month));
-  const add = (date: string) => onAdd ? onAdd(date) : notReady('予定の追加');
+  const add = (trigger: HTMLButtonElement) => onAdd ? onAdd(selected, trigger) : notReady('予定の追加');
   const sideEvents: SideEvent[] = dayEvents.map(event => ({ id: event.id, title: event.title, time: event.time, group: event.group, link: dayLink?.(event) ?? undefined }));
 
   return <AppShell active="calendar" selectedDate={selected} groups={groups} visible={visible} onToggleGroup={groups.length > 1 ? toggle : undefined} dayEvents={sideEvents}>
@@ -96,7 +96,7 @@ function CalendarView({ today, initialDate, groups, events, onMonthChange, onAdd
           <button type="button" className="icon-btn ghost-btn" aria-label="前の月" onClick={() => go(monthSelection(month, -1, today))}><Icon name="chevronLeft" /><span className="desk-only">前月</span></button>
           <button type="button" className="icon-btn ghost-btn" aria-label="次の月" onClick={() => go(monthSelection(month, 1, today))}><Icon name="chevronRight" /><span className="desk-only">翌月</span></button>
           <button type="button" className="ghost-btn desk-only" onClick={() => notReady('日程調整の作成')}><Icon name="pollTab" size={18} />日程調整を作成</button>
-          <button type="button" className="primary-btn desk-only" onClick={() => add(selected)}><Icon name="plus" size={18} />予定を追加</button>
+          <button type="button" className="primary-btn desk-only" onClick={e => add(e.currentTarget)}><Icon name="plus" size={18} />予定を追加</button>
         </div>
       </div>
       <div className="calendar" role="grid" ref={grid} onKeyDown={onGridKey} aria-label={`${year}年${monthNumber}月のカレンダー`}>
@@ -124,7 +124,7 @@ function CalendarView({ today, initialDate, groups, events, onMonthChange, onAdd
     <section className="day-panel" aria-labelledby="day-heading">
       <div className="day-head">
         <h2 id="day-heading">{dateLabel(selected)}<span className="count">{dayEvents.length}件</span></h2>
-        <button type="button" className="primary-btn" onClick={() => add(selected)}><Icon name="plus" size={18} />予定を追加</button>
+        <button type="button" className="primary-btn" onClick={e => add(e.currentTarget)}><Icon name="plus" size={18} />予定を追加</button>
       </div>
       {dayEvents.length ? <ul className="day-list">{dayEvents.map((event, i) => {
         const link = dayLink?.(event);
@@ -154,6 +154,32 @@ function AddEventSheet({ groups, date, onClose, onCreated }: {
   const [groupId, setGroupId] = useState(groups[0]?.id ?? '');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const sheet = useRef<HTMLFormElement>(null);
+
+  useLayoutEffect(() => {
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      const form = sheet.current;
+      if (e.key !== 'Tab' || !form) return;
+
+      const controls = Array.from(form.querySelectorAll<HTMLElement>('input, select, button'))
+        .filter(control => control.tabIndex >= 0 && !control.matches(':disabled') && control.getClientRects().length > 0);
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      const active = document.activeElement;
+      if (!form.contains(active) || active === (e.shiftKey ? first : last)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first)?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -167,7 +193,7 @@ function AddEventSheet({ groups, date, onClose, onCreated }: {
   };
 
   return <div className="sheet-backdrop" onClick={onClose} role="presentation">
-    <form className="sheet card" onSubmit={submit} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={`${dateLabel(date)}の予定を追加`}>
+    <form ref={sheet} className="sheet card" onSubmit={submit} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={`${dateLabel(date)}の予定を追加`}>
       <h2>{dateLabel(date)}の予定を追加</h2>
       <label className="field">タイトル<input value={title} onChange={e => setTitle(e.target.value)} maxLength={60} autoFocus /></label>
       <label className="field">グループ<select value={groupId} onChange={e => setGroupId(e.target.value)}>{groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}</select></label>
@@ -186,7 +212,14 @@ function RemoteHome({ today, initialDate }: { today: string; initialDate: string
   const [months, setMonths] = useState<Map<string, ViewEvent[]>>(new Map());
   const [viewMonth, setViewMonth] = useState(initialDate.slice(0, 7));
   const [addDate, setAddDate] = useState<string | null>(null);
+  const addTrigger = useRef<HTMLButtonElement>(null);
   const cache = useRef<Map<string, ViewEvent[]>>(new Map());
+
+  useLayoutEffect(() => {
+    if (addDate !== null) return;
+    addTrigger.current?.focus();
+    addTrigger.current = null;
+  }, [addDate]);
 
   const loadMonth = async (month: string, refresh = false) => {
     if (!refresh && cache.current.has(month)) return;
@@ -248,7 +281,10 @@ function RemoteHome({ today, initialDate }: { today: string; initialDate: string
         void loadMonth(month);
         void loadMonth(shiftedMonth(month, 1));
       }}
-      onAdd={date => setAddDate(date)}
+      onAdd={(date, trigger) => {
+        addTrigger.current = trigger;
+        setAddDate(date);
+      }}
       dayLink={event => event.id ? `/events/${event.id}` : null}
     />
     {addDate && <AddEventSheet groups={groups} date={addDate} onClose={() => setAddDate(null)} onCreated={() => {
