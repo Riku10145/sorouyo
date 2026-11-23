@@ -410,12 +410,9 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const poll = await get<PollRow>(c.env.DB.prepare(`SELECT * FROM polls WHERE id = ?`).bind(c.req.param('id')).first());
     if (!poll) return c.json({ error: 'not_found' } as const, 404);
     if (!(await memberRole(c, poll.group_id, subject.userId))) return c.json({ error: 'forbidden' } as const, 403);
-    const token = newToken();
-    await c.env.DB.batch([
-      c.env.DB.prepare(`UPDATE invites SET revoked_at = ? WHERE poll_id = ? AND purpose = 'answer' AND revoked_at IS NULL`).bind(now(), poll.id),
-      c.env.DB.prepare(`INSERT INTO invites (id, purpose, poll_id, token_hash, created_by, created_at) VALUES (?, 'answer', ?, ?, ?, ?)`)
-        .bind(crypto.randomUUID(), poll.id, await sha256(token), subject.userId, now()),
-    ]);
+    // 回答リンクはベアラートークン。再発行で既存リンクを失効させると、
+    // 主催がコピーするたびに共有済みリンクが死ぬため、旧リンクはそのまま有効にしておく
+    const token = await newInvite(c, 'answer', { pollId: poll.id }, subject.userId);
     return c.json({ token } as const, 201);
   })
 

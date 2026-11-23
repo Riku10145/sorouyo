@@ -272,34 +272,25 @@ describe('data', () => {
     expect(seen.ownAnswer).toMatchObject({ name: 'B子', votes: { [c1]: 'yes' } });
   });
 
-  test('回答リンクの再発行は旧リンクを同一バッチで失効させ、新リンクだけが有効になる', async () => {
+  test('回答リンクの再発行は旧リンクを失効させず、新旧どちらも使える', async () => {
     const db = makeDb();
     const app = testApp(db);
     const host = await login(app, db, 'code_host');
     const { pollId, token } = await setupPoll(app, db, host);
 
-    // 失効UPDATEと新規INSERTが同一batchで出ることを確認（別トランザクションだと原子性が保てない）
-    const batches: string[][] = [];
-    const origBatch = db.batch.bind(db);
-    db.batch = async (stmts) => {
-      batches.push(stmts.map((s) => (s as unknown as { sql: string }).sql));
-      return origBatch(stmts);
-    };
+    // 主催がコピーするたび新トークンは返るが、共有済みの旧リンクを殺さない（ベアラーリンクは複数有効）
     const reissued = await req(app, db, `/api/polls/${pollId}/invite`, { method: 'POST', headers: { cookie: host } });
     expect(reissued.status).toBe(201);
     const { token: token2 } = await reissued.json() as { token: string };
     expect(token2).not.toBe(token);
-    const reissue = batches.find((sqls) => sqls.some((s) => s.includes('INSERT INTO invites')));
-    expect(reissue?.some((s) => s.includes('UPDATE invites SET revoked_at'))).toBe(true);
 
-    // 旧リンクは閲覧も送信も拒否される
-    expect((await post(app, db, '/api/invite', { token })).status).toBe(404);
-    const invite = await post(app, db, '/api/invite', { token: token2 });
+    const invite = await post(app, db, '/api/invite', { token });
+    expect(invite.status).toBe(200);
     const candId = (await invite.json() as { poll: { candidates: { id: string }[] } }).poll.candidates[0]!.id;
     expect((await post(app, db, '/api/invite/answer', {
       token, name: '旧リンク', votes: [{ candidateId: candId, value: 'yes' }],
-    })).status).toBe(404);
-    // 新リンクは従来どおり使える
+    }, await guest(app, db))).status).toBe(200);
+    // 新リンクも従来どおり使える
     expect((await post(app, db, '/api/invite/answer', {
       token: token2, name: '新リンク', votes: [{ candidateId: candId, value: 'yes' }],
     }, await guest(app, db))).status).toBe(200);
