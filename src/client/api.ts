@@ -33,12 +33,12 @@ export interface MemberPoll {
   answers: { id: string; name: string; comment: string | null; own: boolean; votes: Record<string, Vote>; createdAt: string }[];
 }
 
-export type InviteResult = { status: 'ok'; poll: InvitePoll } | { status: 'invalid' };
+export type InviteResult = { status: 'ok'; poll: InvitePoll } | { status: 'invalid' } | { status: 'error' };
 
 export async function fetchInvite(token: string): Promise<InviteResult> {
   const response = await api.api.invite.$post({ json: { token } });
   if (response.status === 404) return { status: 'invalid' };
-  if (!response.ok) return { status: 'invalid' };
+  if (!response.ok) return { status: 'error' };
   return { status: 'ok', poll: (await response.json()).poll as InvitePoll };
 }
 
