@@ -6,7 +6,7 @@ test('mobile calendar event opens with Tab and Enter or a tap', {
   skip: process.env.BROWSER_TEST !== '1' && 'BROWSER_TEST=1 が必要（npm run test:browser）',
 }, async () => {
   const browser = await chromium.connectOverCDP(process.env.CDP_URL ?? 'http://localhost:29229');
-  const context = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
+  const context = await browser.newContext({ viewport: { width: 320, height: 600 }, isMobile: true, hasTouch: true });
   try {
     const page = await context.newPage();
     const origin = new URL(process.env.APP_URL ?? 'http://localhost:5173').origin;
@@ -32,10 +32,23 @@ test('mobile calendar event opens with Tab and Enter or a tap', {
 
     await page.goto(dayUrl);
     await eventTitle.waitFor();
+    await page.evaluate(() => document.fonts.ready);
     await dayPanel.getByRole('button', { name: '予定を追加' }).focus();
     await page.keyboard.press('Tab');
-    const focusedHref = await page.evaluate(() => document.activeElement?.getAttribute('href'));
-    assert.equal(focusedHref, eventPath, 'Tab after 予定を追加 must focus the day event link');
+    const focus = await page.evaluate(() => {
+      const element = document.activeElement;
+      const style = getComputedStyle(element);
+      const outlineWidth = parseFloat(style.outlineWidth);
+      return {
+        href: element.getAttribute('href'),
+        outlineWidth,
+        ringBottom: element.getBoundingClientRect().bottom + outlineWidth + parseFloat(style.outlineOffset),
+        navTop: document.querySelector('.bottom-nav').getBoundingClientRect().top,
+      };
+    });
+    assert.equal(focus.href, eventPath, 'Tab after 予定を追加 must focus the day event link');
+    assert.ok(focus.outlineWidth > 0 && focus.ringBottom <= focus.navTop,
+      `the focus ring must be visible above the bottom nav: ${JSON.stringify(focus)}`);
     await page.keyboard.press('Enter');
     await expectEventDetail();
 
