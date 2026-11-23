@@ -6,7 +6,7 @@ import { dateLabel } from '../../shared/model';
 export type Tab = 'calendar' | 'polls' | 'groups';
 const NAV: readonly { id: Tab | 'plan'; label: string; icon: IconName; href?: string }[] = [
   { id: 'calendar', label: 'カレンダー', icon: 'calendarTab', href: '/' },
-  { id: 'polls', label: '日程調整', icon: 'pollTab', href: '/polls/sample' },
+  { id: 'polls', label: '日程調整', icon: 'pollTab', href: '/polls' },
   { id: 'groups', label: 'グループ', icon: 'groupsTab', href: '/groups' },
   { id: 'plan', label: 'プラン', icon: 'plan' },
 ];

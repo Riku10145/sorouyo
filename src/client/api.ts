@@ -33,6 +33,19 @@ export interface MemberPoll {
   answers: { id: string; name: string; comment: string | null; own: boolean; votes: Record<string, Vote>; createdAt: string }[];
 }
 
+export interface PollSummary {
+  id: string;
+  title: string;
+  status: 'open' | 'confirmed';
+  deadlineAt: string | null;
+  accepting: boolean;
+  group: { id: string; name: string; color: string | null };
+  creator: boolean;
+  candidatesCount: number;
+  answersCount: number;
+  confirmed: { date: string; startTime: string | null } | null;
+}
+
 export type InviteResult = { status: 'ok'; poll: InvitePoll } | { status: 'invalid' } | { status: 'error' };
 
 export async function fetchInvite(token: string): Promise<InviteResult> {
@@ -52,6 +65,22 @@ export async function submitAnswer(
   if (response.status === 403) return 'forbidden';
   if (response.status === 404) return 'invalid';
   return response.ok ? 'ok' : 'error';
+}
+
+export async function fetchPolls(): Promise<{ status: number; polls?: PollSummary[] }> {
+  const response = await api.api.polls.$get();
+  if (!response.ok) return { status: response.status };
+  return { status: 200, polls: (await response.json()).polls as PollSummary[] };
+}
+
+export async function createPoll(
+  groupId: string,
+  body: { title: string; deadlineAt?: string | null; candidates: { date: string; time?: string | null }[] },
+): Promise<{ id: string; token: string } | null> {
+  const response = await api.api.groups[':id'].polls.$post({ param: { id: groupId }, json: body });
+  if (!response.ok) return null;
+  const data = await response.json();
+  return { id: data.poll.id, token: data.token };
 }
 
 export async function fetchMemberPoll(id: string): Promise<{ status: number; poll?: MemberPoll }> {

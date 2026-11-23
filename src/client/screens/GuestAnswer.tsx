@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type SubmitEvent, type ReactNode } from 'react';
-import { answerError, dateLabel, dayTone, shortDate, weekday, type Vote } from '../../shared/model';
+import { answerError, dateLabel, dayTone, shortDate, timeLabel, weekday, type Vote } from '../../shared/model';
 import { findPoll, type Poll } from '../../shared/sample';
 import { Brand, Icon, InviteHero, VOTE_WORD, VoteMark, VotePicker } from '../design/ui';
 import { Envelope } from '../design/art';
@@ -46,7 +46,7 @@ const ClosedNotice = ({ poll }: { poll: Poll }) => <Notice title="回答は締�
 </Notice>;
 
 const ConfirmedNotice = ({ poll, decided }: { poll: Poll; decided: { date: string; time: string } }) => <Notice title="日程が決まりました">
-  <section className="invite-card"><Envelope width={64} height={46} /><h2>{poll.title}</h2><p className="strong">{dateLabel(decided.date)} {decided.time}〜に決まりました</p></section>
+  <section className="invite-card"><Envelope width={64} height={46} /><h2>{poll.title}</h2><p className="strong">{dateLabel(decided.date)} {timeLabel(decided.time)}に決まりました</p></section>
   <p className="note">回答の追加や変更は、幹事の{poll.host}さんに直接お知らせください。</p>
 </Notice>;
 
@@ -172,8 +172,8 @@ function GuestForm({ poll, initial, onSubmit }: {
       <form className="guest-form" ref={form} onSubmit={submit} noValidate>
         <div className="vote-head"><h2 ref={candidates} tabIndex={-1}>候補日</h2><span aria-hidden="true">{Object.values(VOTE_WORD).map(word => <span key={word}>{word}</span>)}</span></div>
         <ul className="vote-rows">{poll.candidates.map((item, i) => <li key={item.id ?? item.date} className="vote-row">
-          <span className="cand-date"><span className="num m-only">{shortDate(item.date)}</span><small className={`m-only ${dayTone(item.date) ?? ''}`}>{weekday(item.date)}</small><strong className="desk-only">{dateLabel(item.date)}</strong><span className="cand-time num">{item.time}〜</span></span>
-          <VotePicker label={`${dateLabel(item.date)} ${item.time}〜`} describedBy={error ? 'answer-error' : undefined} value={votes[i] ?? null} onChange={vote => setVotes(current => current.map((value, j) => (j === i ? vote : value)))} />
+          <span className="cand-date"><span className="num m-only">{shortDate(item.date)}</span><small className={`m-only ${dayTone(item.date) ?? ''}`}>{weekday(item.date)}</small><strong className="desk-only">{dateLabel(item.date)}</strong><span className="cand-time num">{timeLabel(item.time)}</span></span>
+          <VotePicker label={`${dateLabel(item.date)} ${timeLabel(item.time)}`} describedBy={error ? 'answer-error' : undefined} value={votes[i] ?? null} onChange={vote => setVotes(current => current.map((value, j) => (j === i ? vote : value)))} />
         </li>)}</ul>
         <label className="field"><span>お名前</span><input name="name" value={name} onChange={event => setName(event.target.value)} autoComplete="nickname" maxLength={30} required aria-invalid={nameMissing || undefined} aria-describedby={error ? 'answer-error' : undefined} /></label>
         <label className="field"><span>ひとこと（任意）</span><input value={comment} onChange={event => setComment(event.target.value)} placeholder="みんなに伝えておきたいこと" maxLength={100} /></label>
