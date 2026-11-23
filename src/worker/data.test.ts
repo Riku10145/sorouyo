@@ -27,6 +27,7 @@ function makeDb(): D1Database {
   const prepare = (sql: string) => {
     let args: unknown[] = [];
     const stmt = {
+      sql,
       bind(...v: unknown[]) { args = v; return stmt; },
       run: async () => {
         const r = db.prepare(sql).run(...args);
@@ -277,10 +278,19 @@ describe('data', () => {
     const host = await login(app, db, 'code_host');
     const { pollId, token } = await setupPoll(app, db, host);
 
+    // 失効UPDATEと新規INSERTが同一batchで出ることを確認（別トランザクションだと原子性が保てない）
+    const batches: string[][] = [];
+    const origBatch = db.batch.bind(db);
+    db.batch = async (stmts) => {
+      batches.push(stmts.map((s) => (s as unknown as { sql: string }).sql));
+      return origBatch(stmts);
+    };
     const reissued = await req(app, db, `/api/polls/${pollId}/invite`, { method: 'POST', headers: { cookie: host } });
     expect(reissued.status).toBe(201);
     const { token: token2 } = await reissued.json() as { token: string };
     expect(token2).not.toBe(token);
+    const reissue = batches.find((sqls) => sqls.some((s) => s.includes('INSERT INTO invites')));
+    expect(reissue?.some((s) => s.includes('UPDATE invites SET revoked_at'))).toBe(true);
 
     // 旧リンクは閲覧も送信も拒否される
     expect((await post(app, db, '/api/invite', { token })).status).toBe(404);
