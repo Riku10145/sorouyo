@@ -1,7 +1,27 @@
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { Envelope, icons, stamps, type IconName } from './art';
 import { VOTES, type Vote } from '../../shared/model';
 import { groupName, type CalendarEvent, type GroupId, type Poll } from '../../shared/sample';
+
+// グループの色。作成・編集画面はこのパレットから選び、DBには先頭の16進色を保存する
+export const GROUP_COLORS = [
+  { value: '#D97A3D', soft: '#F9E8D9' },
+  { value: '#C95D7C', soft: '#F7E2E9' },
+  { value: '#4E8A5A', soft: '#E3EFE4' },
+  { value: '#7A5CA8', soft: '#EBE4F5' },
+  { value: '#4A6E9E', soft: '#E2EAF3' },
+  { value: '#B98A2E', soft: '#F3EAD3' },
+] as const;
+export const DEFAULT_GROUP_COLOR: string = GROUP_COLORS[0].value;
+export const softOf = (color: string): string => GROUP_COLORS.find(item => item.value === color)?.soft ?? `${color}26`;
+
+/** グループ表示: color があれば16進色のCSS変数、なければサンプルの g-* クラスを使う */
+export type DisplayGroup = { id: string; name: string; color?: string | null; className?: GroupId };
+export const groupVars = (group: { color?: string | null }): CSSProperties | undefined =>
+  group.color ? ({ '--g': group.color, '--g-soft': softOf(group.color) } as CSSProperties) : undefined;
+export const groupCls = (group: DisplayGroup): string => group.color ? '' : `g-${group.className ?? 'friends'}`;
+export const Dot = ({ group }: { group: DisplayGroup }) =>
+  <span className={`dot ${groupCls(group)}`} style={groupVars(group)} aria-hidden="true" />;
 
 export function Icon({ name, size = 20, className }: { name: IconName; size?: number; className?: string }) {
   const Svg = icons[name];
