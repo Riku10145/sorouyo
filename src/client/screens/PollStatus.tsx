@@ -57,12 +57,15 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
     })),
     confirmedIndex: confirmedIndex !== null && confirmedIndex >= 0 ? confirmedIndex : null,
   };
-  const link = () => {
-    issuedLink.current ??= (async () => {
-      const token = await issueInviteToken(remote.id);
-      return token ? `${window.location.origin}/r#${token}` : '';
-    })();
-    return issuedLink.current;
+  const link = async () => {
+    issuedLink.current ??= issueInviteToken(remote.id).then(token =>
+      token ? `${window.location.origin}/r#${token}` : Promise.reject(new Error('no token')));
+    try {
+      return await issuedLink.current;
+    } catch {
+      issuedLink.current = null; // 失敗は保持しない。次のコピーで発行をやり直せるように
+      return '';
+    }
   };
   return <PollStatus poll={poll} selectedDate={selectedDate} expired={expired}
     canConfirm={me?.user.id === remote.creatorId} // 確定は主催者のみ（バックエンドも403で保護）
