@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { DAYS, dateFromKey, dateKey, dateLabel, dayTone, monthCells, shiftedMonth } from '../../shared/model';
+import { DAYS, dateFromKey, dateKey, dateLabel, dayTone, monthCells } from '../../shared/model';
 import { GROUPS, SAMPLE_EVENTS, groupName, type CalendarEvent, type Stamp } from '../../shared/sample';
 import { monthArt, stamps } from '../design/art';
 import { Brand, Dot, Icon, notReady, toast, type DisplayGroup, groupCls, groupVars } from '../design/ui';
 import { createEvent, createGroup, fetchCalendar, fetchGroups, useMe, type CalEvent, type GroupInfo } from '../api';
 import { AppShell, type SideEvent } from './Shell';
 import { GroupForm } from './Groups';
+import { monthSelection } from './monthSelection';
 
 export const todayInTokyo = (): string => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
@@ -88,8 +89,8 @@ function CalendarView({ today, initialDate, groups, events, onMonthChange, onAdd
         <Art className="month-art" width={60} height={45} />
         <div className="month-actions">
           <button type="button" className="text-btn ghost-btn" onClick={() => go(today)}>今日</button>
-          <button type="button" className="icon-btn ghost-btn" aria-label="前の月" onClick={() => changeMonth(shiftedMonth(month, -1))}><Icon name="chevronLeft" /><span className="desk-only">前月</span></button>
-          <button type="button" className="icon-btn ghost-btn" aria-label="次の月" onClick={() => changeMonth(shiftedMonth(month, 1))}><Icon name="chevronRight" /><span className="desk-only">翌月</span></button>
+          <button type="button" className="icon-btn ghost-btn" aria-label="前の月" onClick={() => go(monthSelection(month, -1, today))}><Icon name="chevronLeft" /><span className="desk-only">前月</span></button>
+          <button type="button" className="icon-btn ghost-btn" aria-label="次の月" onClick={() => go(monthSelection(month, 1, today))}><Icon name="chevronRight" /><span className="desk-only">翌月</span></button>
           <button type="button" className="ghost-btn desk-only" onClick={() => notReady('日程調整の作成')}><Icon name="pollTab" size={18} />日程調整を作成</button>
           <button type="button" className="primary-btn desk-only" onClick={() => add(selected)}><Icon name="plus" size={18} />予定を追加</button>
         </div>
