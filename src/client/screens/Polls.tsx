@@ -131,13 +131,15 @@ export function PollCreate() {
   const cells = monthCells(month);
   const [year, monthNumber] = month.split('-').map(Number) as [number, number];
 
-  const toggleDate = (date: string) => setPicked(current => {
-    const next = new Set(current);
-    if (next.has(date)) next.delete(date);
-    else if (next.size >= 31) { toast('候補日は31日までです'); return current; }
-    else next.add(date);
-    return next;
-  });
+  const toggleDate = (date: string) => {
+    // state更新内で副作用を起こさないよう上限判定は外で行う（Strict Modeの再実行対策）
+    if (!picked.has(date) && picked.size >= 31) { toast('候補日は31日までです'); return; }
+    setPicked(current => {
+      const next = new Set(current);
+      if (next.has(date)) next.delete(date); else next.add(date);
+      return next;
+    });
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -230,7 +232,8 @@ export function PollCreate() {
         </ul>
       </fieldset>
       <label className="field">回答締切（任意・日本時間）
-        <input type="datetime-local" value={deadline} min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)} onChange={e => setDeadline(e.target.value)} />
+        {/* 入力は日本時間として扱うため min も日本時間の現在時刻で計算（端末のTZに依存させない） */}
+        <input type="datetime-local" value={deadline} min={new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 16)} onChange={e => setDeadline(e.target.value)} />
       </label>
       {error && <p className="form-error" role="alert">{error}</p>}
       <button type="submit" className="primary-btn wide" disabled={busy}>{busy ? '作成中…' : '日程調整を作成'}</button>
