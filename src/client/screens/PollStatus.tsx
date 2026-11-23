@@ -3,6 +3,7 @@ import { answered, bestCandidate, dateLabel, shortDate, tally, weekday, dayTone 
 import { SAMPLE_ORGANIZER, type Poll } from '../../shared/sample';
 import { Icon, InviteHero, VoteMark, notReady, toast, type DisplayGroup } from '../design/ui';
 import { AppShell } from './Shell';
+import { LoginLink } from './Auth';
 import { confirmCandidate, fetchMemberPoll, issueInviteToken, toJst, useMe, type MemberPoll } from '../api';
 
 const guestUrl = (poll: Poll) => `${window.location.origin}/r#${poll.token}`;
@@ -29,7 +30,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
         <Icon name="link" size={32} />
         <h2>{login ? 'ログインが必要です' : '調整を開けません'}</h2>
         <p>{login ? 'この日程調整はログインした主催者・メンバーだけが見られます。' : '権限がないか、削除された可能性があります。'}</p>
-        {login && <a className="soft-btn" href="/settings"><Icon name="settings" size={18} />設定からログイン</a>}
+        {login && <LoginLink next={`/polls/${id}`} className="soft-btn"><Icon name="settings" size={18} />ログイン</LoginLink>}
       </section>
     </AppShell>;
   }
@@ -158,7 +159,7 @@ export function PollStatus({ poll, selectedDate, canConfirm = true, onConfirm, o
       </table>
     </section>
 
-    {canConfirm && <div className="confirm-bar">
+    {canConfirm && confirmed === null && <div className="confirm-bar">
       <p className="desk-only best-note"><span>{chosen === best ? '参加できる人が最多' : '選択中の候補日'}</span><strong>{dateLabel(candidate.date)}{candidate.time}〜</strong></p>
       <button type="button" className="primary-btn wide" disabled={confirmed === chosen} onClick={confirm}>
         <Icon name="check" size={18} className="desk-only" />{confirmed === chosen ? '確定しました' : <><span className="m-only">{confirmLabel}</span><span className="desk-only">この日程に確定する</span></>}

@@ -157,8 +157,8 @@ async function writeAnswer(
   const savedVotes = await all<VoteRow>(c.env.DB.prepare(
     `SELECT v.* FROM votes v JOIN answers a ON a.id = v.answer_id WHERE a.poll_id = ? AND a.respondent_key = ?`
   ).bind(pollId, key).all());
-  // 受付中でないと条件付き書き込みは0行になる。既存行が残っていても updated_at は今回の at にならない
-  return { saved: saved ?? null, savedVotes, wrote: saved !== null && saved.updated_at === at };
+  // 受付中でないと条件付き書き込みは0行になり、 saved には古い行が残る。受付判定は呼び出し側で行う
+  return { saved: saved ?? null, savedVotes };
 }
 
 // --- バリデーション ----------------------------------------------------------
@@ -390,7 +390,8 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const stmts = [
       c.env.DB.prepare(
         `INSERT INTO polls (id, group_id, creator_id, title, deadline_at, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)`
-      ).bind(pollId, groupId, subject.userId, body.data.title, body.data.deadlineAt ?? null, now()),
+      // 締切はミリ秒つきISOに正規化して保存し、 OPEN_WHERE の文字列比較と形式を揃える
+      ).bind(pollId, groupId, subject.userId, body.data.title, body.data.deadlineAt ? new Date(body.data.deadlineAt).toISOString() : null, now()),
       ...body.data.candidates.map((cand, i) =>
         c.env.DB.prepare(`INSERT INTO candidates (id, poll_id, position, date, start_time) VALUES (?, ?, ?, ?, ?)`)
           .bind(crypto.randomUUID(), pollId, i, cand.date, cand.time ?? null)),
@@ -646,13 +647,18 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!votes.length) return c.json({ error: 'invalid_body' } as const, 400);
 
     // 締切・確定済みの調整には、既存回答があっても新しい送信を受け付けない
-    const accepting = poll.status === 'open' && (!poll.deadline_at || poll.deadline_at > now());
+    const accepting = poll.status === 'open' && (!poll.deadline_at || new Date(poll.deadline_at).getTime() > Date.now());
     if (!accepting) return c.json({ error: 'closed' } as const, 410);
 
-    const { saved, savedVotes, wrote } = await writeAnswer(c, poll.id, key, ids, body.data.name, body.data.comment ?? null, votes);
-    // 確認と実行の間に締切・確定が入ると書き込みは0行。既存回答が残っていても受付終了を返す
-    if (!saved || !wrote) return c.json({ error: 'closed' } as const, 410);
-    if (votes.length && !savedVotes.length) return c.json({ error: 'conflict' } as const, 409);
+    const { saved, savedVotes } = await writeAnswer(c, poll.id, key, ids, body.data.name, body.data.comment ?? null, votes);
+    // 受付チェックと書き込みの間に確定・締切が入ると条件付きSQLは0行になる。書き込み後に再読して、
+    // 締まっていれば410、受付中なら最新の回答を冪等に返す（同一回答者の競合書き込みも受理扱い）
+    const latest = await get<Pick<PollRow, 'status' | 'deadline_at'>>(c.env.DB.prepare(
+      `SELECT status, deadline_at FROM polls WHERE id = ?`
+    ).bind(poll.id).first());
+    const stillOpen = latest?.status === 'open' && (!latest.deadline_at || new Date(latest.deadline_at).getTime() > Date.now());
+    if (!stillOpen) return c.json({ error: 'closed' } as const, 410);
+    if (!saved || (votes.length && !savedVotes.length)) return c.json({ error: 'conflict' } as const, 409);
     return c.json({
       answer: {
         id: saved.id,

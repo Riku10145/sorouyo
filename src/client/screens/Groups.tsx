@@ -20,7 +20,7 @@ export function GroupForm({ initial, submitLabel, onSubmit, onCancel }: {
     e.preventDefault();
     if (!name.trim()) { setError('グループ名を入力してください'); return; }
     setBusy(true);
-    const message = await onSubmit(name.trim(), color);
+    const message = await onSubmit(name.trim(), color).catch(() => '保存できませんでした');
     setBusy(false);
     if (message) { setError(message); return; }
     if (!initial) { setName(''); setColor(DEFAULT_GROUP_COLOR); }
@@ -118,12 +118,13 @@ export function GroupDetail({ id, selectedDate }: { id: string; selectedDate: st
     return () => { active = false; };
   }, [id, me]);
 
-  if (me === undefined || detail === 'loading') return null;
+  if (me === undefined) return null;
   if (me === null) {
     return <AppShell active="groups" selectedDate={selectedDate} groups={[]} subpage>
       <LoginCard next={`/groups/${id}`} />
     </AppShell>;
   }
+  if (detail === 'loading') return null;
   if (detail === 'denied') {
     return <AppShell active="groups" selectedDate={selectedDate} groups={[]} subpage>
       <section className="notice-card" role="alert" style={{ margin: '24px 16px' }}>

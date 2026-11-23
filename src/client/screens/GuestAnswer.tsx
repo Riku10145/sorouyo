@@ -126,7 +126,7 @@ function GuestForm({ poll, initial, onSubmit }: {
           else if (result === 'closed') setClosed(true);
           else if (result === 'forbidden') setDenied(true);
           else setSendError(true);
-        });
+        }).catch(() => { setSending(false); setSendError(true); });
       return;
     }
     const missing = votes.findIndex(vote => vote === null);
