@@ -8,8 +8,11 @@ import { validDate } from '../shared/model';
 import { SAMPLE_SELECTED_DATE, findPoll } from '../shared/sample';
 import { Toaster } from './design/ui';
 import { Home, todayInTokyo } from './screens/Home';
-import { PollStatus } from './screens/PollStatus';
+import { PollStatus, RemotePollStatus } from './screens/PollStatus';
 import { GuestAnswer } from './screens/GuestAnswer';
+import { Groups, GroupDetail } from './screens/Groups';
+import { JoinGroup } from './screens/Join';
+import { EventDetail } from './screens/EventDetail';
 import { Settings } from './screens/Settings';
 import { api } from './api';
 import './style.css';
@@ -20,9 +23,19 @@ function Screen() {
   const requested = new URLSearchParams(search).get('date');
   const selected = validDate(requested) ? requested : today;
   if (pathname === '/r' || pathname === '/r/') return <GuestAnswer />;
+  if (pathname === '/join' || pathname === '/join/') return <JoinGroup />;
   if (pathname === '/settings' || pathname === '/settings/') return <Settings />;
-  const poll = findPoll(pathname.match(/^\/polls\/([\w-]+)\/?$/)?.[1] ?? '');
-  if (poll) return <PollStatus poll={poll} selectedDate={validDate(requested) ? requested : SAMPLE_SELECTED_DATE} />;
+  if (pathname === '/groups' || pathname === '/groups/') return <Groups />;
+  const groupId = pathname.match(/^\/groups\/([\w-]+)\/?$/)?.[1];
+  if (groupId) return <GroupDetail id={groupId} selectedDate={selected} />;
+  const eventId = pathname.match(/^\/events\/([\w-]+)\/?$/)?.[1];
+  if (eventId) return <EventDetail id={eventId} selectedDate={selected} />;
+  const pollId = pathname.match(/^\/polls\/([\w-]+)\/?$/)?.[1];
+  if (pollId) {
+    const poll = findPoll(pollId);
+    if (poll) return <PollStatus poll={poll} selectedDate={validDate(requested) ? requested : SAMPLE_SELECTED_DATE} />;
+    return <RemotePollStatus id={pollId} selectedDate={selected} />;
+  }
   return <Home today={today} initialDate={selected} />;
 }
 
