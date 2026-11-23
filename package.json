@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run && node --test scripts/check-release-age.test.mjs",
-    "test:sidebar": "SIDEBAR_SCROLL_TEST=1 node --test scripts/sidebar-scroll.test.mjs",
+    "test:browser": "BROWSER_TEST=1 node --test scripts/*.browser.test.mjs",
     "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.worker.json",
     "cf-typegen": "wrangler types",
     "check:release-age": "node scripts/check-release-age.mjs",
@@ -22,11 +22,11 @@
     "vite": "8.3.8",
     "@vitejs/plugin-react": "6.3.0",
     "@cloudflare/vite-plugin": "1.69.1",
+    "playwright-core": "1.65.1",
     "wrangler": "4.162.0",
     "vitest": "5.1.0",
     "@types/react": "19.3.0",
-    "@types/react-dom": "19.3.0",
-    "playwright-core": "1.65.1"
+    "@types/react-dom": "19.3.0"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

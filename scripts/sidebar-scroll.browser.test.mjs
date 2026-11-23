@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { test } from 'node:test';
+import { chromium } from 'playwright-core';
 
+// CDP接続できるChromeとdevサーバが前提。`npm run test:browser` で opt-in して実行する
+// （`node --test scripts/` のような一括実行ではスキップされる）
 test('desktop sidebar keeps settings reachable in a short viewport', {
-  skip: process.env.SIDEBAR_SCROLL_TEST !== '1',
+  skip: process.env.BROWSER_TEST !== '1' && 'BROWSER_TEST=1 が必要（npm run test:browser）',
 }, async () => {
-  const { chromium } = await import('playwright-core');
-  const browser = await chromium.connectOverCDP(process.env.CHROME_CDP_URL ?? 'http://localhost:29229');
+  const browser = await chromium.connectOverCDP(process.env.CDP_URL ?? 'http://localhost:29229');
   const context = await browser.newContext({ viewport: { width: 1280, height: 420 } });
   try {
     const page = await context.newPage();
