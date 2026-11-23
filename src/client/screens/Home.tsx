@@ -50,7 +50,7 @@ export function Home({ today, initialDate }: { today: string; initialDate: strin
   return <AppShell active="calendar" selectedDate={selected} visible={visible} onToggleGroup={toggle}>
     <header className="m-header">
       <Brand />
-      <button type="button" className="text-btn" onClick={() => notReady('設定')}><Icon name="settings" size={20} />設定</button>
+      <a className="text-btn" href="/settings"><Icon name="settings" size={20} />設定</a>
     </header>
     <div className="group-tabs" role="group" aria-label="表示するグループ">
       <button type="button" aria-pressed={visible.size === ALL.size} onClick={() => setVisible(ALL)}>すべて</button>
