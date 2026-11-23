@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { DAYS, dateFromKey, dateKey, dateLabel, dayTone, monthCells } from '../../shared/model';
+import { DAYS, dateFromKey, dateKey, dateLabel, dayTone, monthCells, shiftedMonth } from '../../shared/model';
 import { GROUPS, SAMPLE_EVENTS, groupName, type CalendarEvent, type Stamp } from '../../shared/sample';
 import { monthArt, stamps } from '../design/art';
 import { Brand, Dot, Icon, notReady, toast, type DisplayGroup, groupCls, groupVars } from '../design/ui';
@@ -67,7 +67,7 @@ function CalendarView({ today, initialDate, groups, events, onMonthChange, onAdd
   };
   const focusable = cells.includes(selected) ? selected : cells.find(date => date.startsWith(month));
   const add = (date: string) => onAdd ? onAdd(date) : notReady('予定の追加');
-  const sideEvents: SideEvent[] = dayEvents.map(event => ({ id: event.id, title: event.title, time: event.time, group: event.group }));
+  const sideEvents: SideEvent[] = dayEvents.map(event => ({ id: event.id, title: event.title, time: event.time, group: event.group, link: dayLink?.(event) ?? undefined }));
 
   return <AppShell active="calendar" selectedDate={selected} groups={groups} visible={visible} onToggleGroup={groups.length > 1 ? toggle : undefined} dayEvents={sideEvents}>
     <header className="m-header">
@@ -155,7 +155,7 @@ function AddEventSheet({ groups, date, onClose, onCreated }: {
     e.preventDefault();
     if (!title.trim()) { setError('タイトルを入力してください'); return; }
     setBusy(true);
-    const created = await createEvent(groupId, { date, title: title.trim(), time: time || null });
+    const created = await createEvent(groupId, { date, title: title.trim(), time: time || null }).catch(() => null);
     setBusy(false);
     if (!created) { setError('保存できませんでした'); return; }
     toast('予定を追加しました');
@@ -196,7 +196,11 @@ function RemoteHome({ today, initialDate }: { today: string; initialDate: string
 
   useEffect(() => {
     void (async () => {
-      const [list] = await Promise.all([fetchGroups(), loadMonth(initialDate.slice(0, 7))]);
+      const current = initialDate.slice(0, 7);
+      const [list] = await Promise.all([fetchGroups(), loadMonth(current)]);
+      // 月表示には隣月の日付も含まれる。初回表示を待たせないため前後月はバックグラウンドで取る
+      void loadMonth(shiftedMonth(current, -1));
+      void loadMonth(shiftedMonth(current, 1));
       // 取得失敗を「0件」と誤表示しない（グループがある人に空の案内を出さない）
       setGroups(list ?? 'error');
     })();
@@ -234,7 +238,12 @@ function RemoteHome({ today, initialDate }: { today: string; initialDate: string
       today={today} initialDate={initialDate}
       groups={displayGroups}
       events={[...months.values()].flat()}
-      onMonthChange={month => { setViewMonth(month); void loadMonth(month); }}
+      onMonthChange={month => {
+        setViewMonth(month);
+        void loadMonth(shiftedMonth(month, -1));
+        void loadMonth(month);
+        void loadMonth(shiftedMonth(month, 1));
+      }}
       onAdd={date => setAddDate(date)}
       dayLink={event => event.id ? `/events/${event.id}` : null}
     />

@@ -17,7 +17,7 @@ function NavItems({ active, className }: { active: Tab; className: string }) {
     : <button key={item.id} type="button" className={className} onClick={() => notReady(item.label)}><Icon name={item.icon} size={22} /><span>{item.label}</span></button>)}</>;
 }
 
-export interface SideEvent { id?: string; title: string; time?: string | null; group: DisplayGroup }
+export interface SideEvent { id?: string; title: string; time?: string | null; group: DisplayGroup; link?: string }
 
 export function AppShell({ active, selectedDate, groups, visible, onToggleGroup, dayEvents, subpage, children }: {
   active: Tab; selectedDate: string; groups: DisplayGroup[];
@@ -36,7 +36,9 @@ export function AppShell({ active, selectedDate, groups, visible, onToggleGroup,
       </section>}
       {selectedDate && <section className="side-day" aria-label="選択した日の予定">
         <h2>{dateLabel(selectedDate)}の予定</h2>
-        {dayEvents?.length ? <ul>{dayEvents.map((event, i) => <li key={event.id ?? i}><Dot group={event.group} /><span className="num">{event.time ?? '終日'}</span>{event.title}</li>)}</ul> : <p>予定はありません</p>}
+        {dayEvents?.length ? <ul>{dayEvents.map((event, i) => <li key={event.id ?? i}>{event.link
+          ? <a className="side-event-link" href={event.link}><Dot group={event.group} /><span className="num">{event.time ?? '終日'}</span>{event.title}</a>
+          : <><Dot group={event.group} /><span className="num">{event.time ?? '終日'}</span>{event.title}</>}</li>)}</ul> : <p>予定はありません</p>}
       </section>}
       <a className="side-settings" href="/settings"><Icon name="settings" size={18} />設定<Icon name="chevronRight" size={16} /></a>
     </aside>

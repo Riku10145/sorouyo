@@ -3,6 +3,7 @@ import { answered, bestCandidate, dateLabel, shortDate, tally, timeLabel, weekda
 import { SAMPLE_ORGANIZER, type Poll } from '../../shared/sample';
 import { Icon, InviteHero, VoteMark, notReady, toast, type DisplayGroup } from '../design/ui';
 import { AppShell } from './Shell';
+import { LoginLink } from './Auth';
 import { confirmCandidate, fetchMemberPoll, issueInviteToken, toJst, useMe, type MemberPoll } from '../api';
 
 const guestUrl = (poll: Poll) => `${window.location.origin}/r#${poll.token}`;
@@ -29,7 +30,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
         <Icon name="link" size={32} />
         <h2>{login ? 'ログインが必要です' : '調整を開けません'}</h2>
         <p>{login ? 'この日程調整はログインした主催者・メンバーだけが見られます。' : '権限がないか、削除された可能性があります。'}</p>
-        {login && <a className="soft-btn" href="/settings"><Icon name="settings" size={18} />設定からログイン</a>}
+        {login && <LoginLink next={`/polls/${id}`} className="soft-btn"><Icon name="settings" size={18} />ログイン</LoginLink>}
       </section>
     </AppShell>;
   }

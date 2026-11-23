@@ -14,6 +14,24 @@ export interface AuthEnv {
 export const SESSION_COOKIE = 'sorouyo_session';
 export const STATE_COOKIE = 'sorouyo_state';
 export const NEXT_COOKIE = 'sorouyo_next';
+
+/**
+ * ログイン後の戻り先の検証。文字列の先頭だけでは `/\evil.com` のような指定も通ってしまうため、
+ * アプリ自身のオリジンを基準にURLとして解析し、同じオリジンのときだけ正規化済みのパスを返す。
+ */
+export const safeNext = (next: string | null | undefined, base: string): string | null => {
+  if (!next || next.length > 500) return null;
+  try {
+    const url = new URL(next, base);
+    if (url.origin !== new URL(base).origin) return null;
+    const path = url.pathname + url.search + url.hash;
+    // `/%2e%2e//host` のような指定が `//host` に正規化されることがある。
+    // `//` で始まる値はスキーム相対URLとして外部サイトへ誘導されるため返さない
+    return path.startsWith('//') ? null : path;
+  } catch {
+    return null;
+  }
+};
 export const GUEST_COOKIE = 'sorouyo_guest';
 
 export interface SessionUser {
@@ -221,8 +239,8 @@ export function buildAuthRoutes(getDeps: GetAuthDeps) {
       };
       setCookie(c, STATE_COOKIE, state, stateCookie);
       // ログイン後の戻り先（例: /join#<token>）。同一オリジンの相対パスのみ受け付ける
-      const next = c.req.query('next');
-      if (next && next.startsWith('/') && !next.startsWith('//') && next.length <= 500) {
+      const next = safeNext(c.req.query('next'), c.req.url);
+      if (next) {
         setCookie(c, NEXT_COOKIE, next, stateCookie);
       } else {
         deleteCookie(c, NEXT_COOKIE, { path: '/' });
@@ -254,7 +272,7 @@ export function buildAuthRoutes(getDeps: GetAuthDeps) {
         setCookie(c, SESSION_COOKIE, result.sealedSession, sessionCookieOptions(c));
         const next = getCookie(c, NEXT_COOKIE);
         deleteCookie(c, NEXT_COOKIE, { path: '/' });
-        return c.redirect(next && next.startsWith('/') && !next.startsWith('//') ? next : '/settings', 302);
+        return c.redirect(safeNext(next, c.req.url) ?? '/settings', 302);
       } catch {
         return c.json({ error: 'auth_failed' } as const, 401);
       }

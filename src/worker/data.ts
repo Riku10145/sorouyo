@@ -157,8 +157,8 @@ async function writeAnswer(
   const savedVotes = await all<VoteRow>(c.env.DB.prepare(
     `SELECT v.* FROM votes v JOIN answers a ON a.id = v.answer_id WHERE a.poll_id = ? AND a.respondent_key = ?`
   ).bind(pollId, key).all());
-  // 受付中でないと条件付き書き込みは0行になる。既存行が残っていても updated_at は今回の at にならない
-  return { saved: saved ?? null, savedVotes, wrote: saved !== null && saved.updated_at === at };
+  // 受付中でないと条件付き書き込みは0行になり、 saved には古い行が残る。受付判定は呼び出し側で行う
+  return { saved: saved ?? null, savedVotes };
 }
 
 // --- バリデーション ----------------------------------------------------------
@@ -390,7 +390,8 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const stmts = [
       c.env.DB.prepare(
         `INSERT INTO polls (id, group_id, creator_id, title, deadline_at, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)`
-      ).bind(pollId, groupId, subject.userId, body.data.title, body.data.deadlineAt ?? null, now()),
+      // 締切はミリ秒つきISOに正規化して保存し、 OPEN_WHERE の文字列比較と形式を揃える
+      ).bind(pollId, groupId, subject.userId, body.data.title, body.data.deadlineAt ? new Date(body.data.deadlineAt).toISOString() : null, now()),
       ...body.data.candidates.map((cand, i) =>
         c.env.DB.prepare(`INSERT INTO candidates (id, poll_id, position, date, start_time) VALUES (?, ?, ?, ?, ?)`)
           .bind(crypto.randomUUID(), pollId, i, cand.date, cand.time ?? null)),
@@ -401,7 +402,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     return c.json({ poll: { id: pollId }, token } as const, 201);
   })
 
-  // 回答リンクの再発行（メンバー以上）。既存リンクは無効化しない
+  // 回答リンクの再発行（メンバー以上）。漏えい時に使えるよう、旧リンクは同一バッチで失効させる
   .post('/polls/:id/invite', async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const subject = await subjectOf(c);
@@ -409,7 +410,12 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const poll = await get<PollRow>(c.env.DB.prepare(`SELECT * FROM polls WHERE id = ?`).bind(c.req.param('id')).first());
     if (!poll) return c.json({ error: 'not_found' } as const, 404);
     if (!(await memberRole(c, poll.group_id, subject.userId))) return c.json({ error: 'forbidden' } as const, 403);
-    const token = await newInvite(c, 'answer', { pollId: poll.id }, subject.userId);
+    const token = newToken();
+    await c.env.DB.batch([
+      c.env.DB.prepare(`UPDATE invites SET revoked_at = ? WHERE poll_id = ? AND purpose = 'answer' AND revoked_at IS NULL`).bind(now(), poll.id),
+      c.env.DB.prepare(`INSERT INTO invites (id, purpose, poll_id, token_hash, created_by, created_at) VALUES (?, 'answer', ?, ?, ?, ?)`)
+        .bind(crypto.randomUUID(), poll.id, await sha256(token), subject.userId, now()),
+    ]);
     return c.json({ token } as const, 201);
   })
 
@@ -668,6 +674,19 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const ids = subject.userId ? { userId: subject.userId } : { guestId: subject.guestId! };
     const key = ids.userId ? `u:${ids.userId}` : `g:${ids.guestId}`;
 
+    // リンク単位の簡易レート制限: 1時間に新しい回答者は30人まで。ゲスト識別子を取り直した連投への抑止。
+    // 既に回答済みの人の変更は制限しない
+    const existing = await get<{ id: string }>(c.env.DB.prepare(
+      `SELECT id FROM answers WHERE poll_id = ? AND respondent_key = ?`
+    ).bind(poll.id, key).first());
+    if (!existing) {
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const recent = await get<{ n: number }>(c.env.DB.prepare(
+        `SELECT COUNT(DISTINCT respondent_key) AS n FROM answers WHERE poll_id = ? AND created_at > ?`
+      ).bind(poll.id, hourAgo).first());
+      if ((recent?.n ?? 0) >= 30) return c.json({ error: 'rate_limited' } as const, 429);
+    }
+
     // 対象調整に属する候補だけを受理し、同一候補の重複送信は最初の1件に絞る
     const validIds = new Set(
       (await all<{ id: string }>(c.env.DB.prepare(`SELECT id FROM candidates WHERE poll_id = ?`).bind(poll.id).all())).map(row => row.id)
@@ -677,13 +696,18 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!votes.length) return c.json({ error: 'invalid_body' } as const, 400);
 
     // 締切・確定済みの調整には、既存回答があっても新しい送信を受け付けない
-    const accepting = poll.status === 'open' && (!poll.deadline_at || poll.deadline_at > now());
+    const accepting = poll.status === 'open' && (!poll.deadline_at || new Date(poll.deadline_at).getTime() > Date.now());
     if (!accepting) return c.json({ error: 'closed' } as const, 410);
 
-    const { saved, savedVotes, wrote } = await writeAnswer(c, poll.id, key, ids, body.data.name, body.data.comment ?? null, votes);
-    // 確認と実行の間に締切・確定が入ると書き込みは0行。既存回答が残っていても受付終了を返す
-    if (!saved || !wrote) return c.json({ error: 'closed' } as const, 410);
-    if (votes.length && !savedVotes.length) return c.json({ error: 'conflict' } as const, 409);
+    const { saved, savedVotes } = await writeAnswer(c, poll.id, key, ids, body.data.name, body.data.comment ?? null, votes);
+    // 受付チェックと書き込みの間に確定・締切が入ると条件付きSQLは0行になる。書き込み後に再読して、
+    // 締まっていれば410、受付中なら最新の回答を冪等に返す（同一回答者の競合書き込みも受理扱い）
+    const latest = await get<Pick<PollRow, 'status' | 'deadline_at'>>(c.env.DB.prepare(
+      `SELECT status, deadline_at FROM polls WHERE id = ?`
+    ).bind(poll.id).first());
+    const stillOpen = latest?.status === 'open' && (!latest.deadline_at || new Date(latest.deadline_at).getTime() > Date.now());
+    if (!stillOpen) return c.json({ error: 'closed' } as const, 410);
+    if (!saved || (votes.length && !savedVotes.length)) return c.json({ error: 'conflict' } as const, 409);
     return c.json({
       answer: {
         id: saved.id,
