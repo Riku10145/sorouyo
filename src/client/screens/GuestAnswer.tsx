@@ -32,6 +32,14 @@ const InvalidNotice = () => <Notice title="招待を開けません">
   <section className="notice-card" role="alert"><Icon name="link" size={32} /><h2>リンクをご確認ください</h2><p>招待リンクが無効です。送ってくれた方に、新しいリンクをお願いしてください。</p></section>
 </Notice>;
 
+const InviteLoadError = ({ retry }: { retry: () => void }) => <Notice title="招待を読み込めませんでした">
+  <section className="notice-card">
+    <Icon name="alert" size={32} />
+    <p role="alert">時間をおいて、同じリンクでお試しください。</p>
+    <button type="button" className="primary-btn" onClick={retry}>もう一度試す</button>
+  </section>
+</Notice>;
+
 const ClosedNotice = ({ poll }: { poll: Poll }) => <Notice title="回答は締め切りました">
   <section className="invite-card"><Envelope width={64} height={46} /><h2>{poll.title}</h2><p className="strong">回答締切　{deadlineText(poll)}</p></section>
   <p className="note">回答の追加や変更は、幹事の{poll.host}さんに直接お知らせください。</p>
@@ -57,16 +65,21 @@ export function GuestAnswer() {
 
 /** 実データの回答リンク（/r#<token>）。トークンをAPIに渡して対象の調整だけを取得する。 */
 function RemoteGuest({ token }: { token: string }) {
-  const [result, setResult] = useState<InvitePoll | 'loading' | 'invalid'>('loading');
+  const [result, setResult] = useState<InvitePoll | 'loading' | 'invalid' | 'error'>('loading');
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!token) { setResult('invalid'); return; }
     let active = true;
-    fetchInvite(token).then(found => { if (active) setResult(found.status === 'ok' ? found.poll : 'invalid'); })
-      .catch(() => { if (active) setResult('invalid'); });
+    fetchInvite(token).then(found => { if (active) setResult(found.status === 'ok' ? found.poll : found.status); })
+      .catch(() => { if (active) setResult('error'); });
     return () => { active = false; };
-  }, [token]);
+  }, [token, attempt]);
   if (result === 'loading') return <GuestFrame><header className="guest-header"><Brand size={28} /></header></GuestFrame>;
   if (result === 'invalid') return <InvalidNotice />;
+  if (result === 'error') return <InviteLoadError retry={() => {
+    setResult('loading');
+    setAttempt(current => current + 1);
+  }} />;
   const poll: Poll = {
     token,
     title: result.title,
