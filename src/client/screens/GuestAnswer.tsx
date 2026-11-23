@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type SubmitEvent, type ReactNode } from 'react';
 import { answerError, dateLabel, dayTone, shortDate, timeLabel, weekday, type Vote } from '../../shared/model';
 import { findPoll, type Poll } from '../../shared/sample';
 import { Brand, Icon, InviteHero, VOTE_WORD, VoteMark, VotePicker } from '../design/ui';
@@ -114,7 +114,7 @@ function GuestForm({ poll, initial, onSubmit }: {
   const done = useRef<HTMLHeadingElement>(null);
   const nameMissing = error !== '' && votes.every(vote => vote !== null);
   useEffect(() => { if (sent) { window.scrollTo({ top: 0 }); done.current?.focus(); } }, [sent]);
-  const submit = (event: FormEvent) => {
+  const submit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     setTried(true);
     if (!answerError(votes, name)) {
