@@ -46,12 +46,12 @@ export interface PollSummary {
   confirmed: { date: string; startTime: string | null } | null;
 }
 
-export type InviteResult = { status: 'ok'; poll: InvitePoll } | { status: 'invalid' };
+export type InviteResult = { status: 'ok'; poll: InvitePoll } | { status: 'invalid' } | { status: 'error' };
 
 export async function fetchInvite(token: string): Promise<InviteResult> {
   const response = await api.api.invite.$post({ json: { token } });
   if (response.status === 404) return { status: 'invalid' };
-  if (!response.ok) return { status: 'invalid' };
+  if (!response.ok) return { status: 'error' };
   return { status: 'ok', poll: (await response.json()).poll as InvitePoll };
 }
 
