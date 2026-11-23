@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { DAYS, dateFromKey, dateKey, dateLabel, dayTone, monthCells } from '../../shared/model';
 import { GROUPS, SAMPLE_EVENTS, groupName, type GroupId } from '../../shared/sample';
 import { monthArt } from '../design/art';
@@ -25,10 +25,10 @@ export function Home({ today, initialDate }: { today: string; initialDate: strin
   });
   const go = (date: string) => { setSelected(date); setMonth(date.slice(0, 7)); };
   const grid = useRef<HTMLDivElement>(null);
-  const keyMoved = useRef(false);
-  useEffect(() => {
-    if (!keyMoved.current) return;
-    keyMoved.current = false;
+  const restoreCellFocus = useRef(false);
+  useLayoutEffect(() => {
+    if (!restoreCellFocus.current) return;
+    restoreCellFocus.current = false;
     grid.current?.querySelector<HTMLElement>(`[data-date="${selected}"]`)?.focus();
   }, [selected]);
   const onGridKey = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -38,8 +38,12 @@ export function Home({ today, initialDate }: { today: string; initialDate: strin
     const from = (event.target as HTMLElement).closest<HTMLElement>('[data-date]')?.dataset.date ?? selected;
     const next = dateFromKey(from);
     next.setDate(next.getDate() + step);
-    keyMoved.current = true;
+    restoreCellFocus.current = true;
     go(dateKey(next));
+  };
+  const onCellClick = (date: string) => {
+    if (!date.startsWith(month)) restoreCellFocus.current = true;
+    go(date);
   };
   const focusable = cells.includes(selected) ? selected : cells.find(date => date.startsWith(month));
 
@@ -75,7 +79,7 @@ export function Home({ today, initialDate }: { today: string; initialDate: strin
           {cells.slice(week * 7, week * 7 + 7).map(date => {
             const list = eventsOn(date);
             const names = list.map(event => `${groupName(event.group)} ${event.time ?? ''}${event.title}`).join('、');
-            return <button type="button" role="gridcell" key={date} data-date={date} tabIndex={date === focusable ? 0 : -1} onClick={() => go(date)}
+            return <button type="button" role="gridcell" key={date} data-date={date} tabIndex={date === focusable ? 0 : -1} onClick={() => onCellClick(date)}
               className={`cal-cell ${dayTone(date) ?? ''} ${date.startsWith(month) ? '' : 'outside'}`}
               aria-selected={date === selected} aria-current={date === today ? 'date' : undefined}
               aria-label={`${dateLabel(date)}${list.length ? `、予定${list.length}件：${names}` : ''}`}>
