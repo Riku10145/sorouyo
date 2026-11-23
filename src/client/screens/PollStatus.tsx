@@ -143,7 +143,7 @@ export function PollStatus({ poll, selectedDate, canConfirm = true, onConfirm, o
             <Icon name="chevronRight" size={18} />
           </button>;
       })}
-      {(!you || !answered(you)) && <div className="you-row"><p>あなたはまだ未回答です</p><button type="button" className="soft-btn" onClick={() => onAnswerLink ? onAnswerLink() : window.location.href = `/r#${poll.token}`}><Icon name="edit" size={18} />回答する</button></div>}
+      {(!you || !answered(you)) && <div className="you-row"><p>あなたはまだ未回答です</p><button type="button" className="soft-btn clears-confirm-bar" onClick={() => onAnswerLink ? onAnswerLink() : window.location.href = `/r#${poll.token}`}><Icon name="edit" size={18} />回答する</button></div>}
     </section>
 
     <section className="desk-only matrix-card" aria-label="候補日ごとの回答">
