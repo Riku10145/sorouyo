@@ -26,7 +26,7 @@ npm run dev
 - `npm run check` でブラウザ・Workerの型検査、共有ロジック・APIのテスト、ビルドを実行します。
 - `npm run preview` でビルド済みアプリをWorkersランタイムで配信します。`/r` の直接アクセスもSPAに戻ります。
 - `/api/health` は `{"ok":true}`、不明な `/api/*` はJSONの404を返します。
-- `npm run test:browser` は確定バー、サイドバースクロール、キーボードフォーカスのコントラストの回帰を確認するブラウザテストです（`scripts/*.browser.test.mjs`）。`npm run dev` を起動したうえで、CDP接続可能なChromeを別途起動してから実行します。接続先・起動先は `CDP_URL`（既定 `http://localhost:29229`）と `APP_URL`（既定 `http://localhost:5173`）で変更できます。通常の `node --test` ではスキップされます。
+- `npm run test:browser` はカレンダーのフォーカス、確定バー、サイドバースクロール、キーボードフォーカスのコントラストの回帰を確認するブラウザテストです（`scripts/*.browser.test.mjs`）。`npm run dev` を起動したうえで、CDP接続可能なChromeを別途起動してから実行します。接続先・起動先は `CDP_URL`（既定 `http://localhost:29229`）と `APP_URL`（既定 `http://localhost:5173`）で変更できます。通常の `node --test` ではスキップされます。
   ```sh
   npm run dev &
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --remote-debugging-port=29229 &
