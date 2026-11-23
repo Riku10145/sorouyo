@@ -19,10 +19,10 @@ function NavItems({ active, className }: { active: Tab; className: string }) {
 
 export interface SideEvent { id?: string; title: string; time?: string | null; group: DisplayGroup; link?: string }
 
-export function AppShell({ active, selectedDate, groups, visible, onToggleGroup, dayEvents, subpage, children }: {
+export function AppShell({ active, selectedDate, groups, visible, onToggleGroup, dayEvents, dayNotice, subpage, children }: {
   active: Tab; selectedDate: string; groups: DisplayGroup[];
   visible?: ReadonlySet<string>; onToggleGroup?: (group: string) => void;
-  dayEvents?: SideEvent[]; subpage?: boolean; children: ReactNode;
+  dayEvents?: SideEvent[]; dayNotice?: ReactNode; subpage?: boolean; children: ReactNode;
 }) {
   return <div className={subpage ? 'app-shell subpage' : 'app-shell'}>
     <aside className="sidebar" aria-label="メニュー">
@@ -39,9 +39,9 @@ export function AppShell({ active, selectedDate, groups, visible, onToggleGroup,
       </section>}
       {selectedDate && <section className="side-day" aria-label="選択した日の予定">
         <h2>{dateLabel(selectedDate)}の予定</h2>
-        {dayEvents?.length ? <ul>{dayEvents.map((event, i) => <li key={event.id ?? i}>{event.link
+        {dayNotice ?? (dayEvents?.length ? <ul>{dayEvents.map((event, i) => <li key={event.id ?? i}>{event.link
           ? <a className="side-event-link" href={event.link}><Dot group={event.group} /><span className="num">{event.time ?? '終日'}</span>{event.title}</a>
-          : <><Dot group={event.group} /><span className="num">{event.time ?? '終日'}</span>{event.title}</>}</li>)}</ul> : <p>予定はありません</p>}
+          : <><Dot group={event.group} /><span className="num">{event.time ?? '終日'}</span>{event.title}</>}</li>)}</ul> : <p>予定はありません</p>)}
       </section>}
       <a className="side-settings" href="/settings"><Icon name="settings" size={18} />設定<Icon name="chevronRight" size={16} /></a>
     </aside>
