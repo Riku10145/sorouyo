@@ -158,7 +158,8 @@ function AddEventSheet({ groups, date, onClose, onCreated }: {
 
   useLayoutEffect(() => {
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.defaultPrevented) return;
+      // IME変換中のキー（変換キャンセルのEscape・候補選択のTab）はシートを操作しない
+      if (e.defaultPrevented || e.isComposing) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         onClose();
