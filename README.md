@@ -28,4 +28,13 @@ npm run dev
 
 個別コマンド：`npm test`、`npm run typecheck`、`npm run build`。Wrangler設定を変更した際は `npm run cf-typegen` で `worker-configuration.d.ts` を再生成します。
 
+### デスクトップのサイドバースクロール回帰テスト
+
+`npm run dev` を起動し、Chrome を `--remote-debugging-port=29229` 付きで起動してから
+`npm run test:sidebar` を実行します。1280×420でメインを最下部へスクロールした後も、
+サイドバーを独立してスクロールして「設定」まで到達できることを確認します。
+接続先は `APP_URL`（既定: `http://localhost:5173`）と
+`CHROME_CDP_URL`（既定: `http://localhost:29229`）で変更できます。
+このブラウザテストは明示実行時のみ有効で、通常の `node --test` ではスキップされます。
+
 `src/client/` はPaperのデザインに合わせた画面（`design/` に共通部品とSVG）、`src/worker/` はAPI（`AppType` をクライアントに型のみ共有）、`src/shared/` はPoCから移植した日付・投票集計の純粋関数です。URLフラグメントのトークンはAPIやログに送信しません。回答の保存機能は未実装です。
