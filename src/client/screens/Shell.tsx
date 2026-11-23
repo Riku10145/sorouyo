@@ -29,7 +29,10 @@ export function AppShell({ active, selectedDate, visible, onToggleGroup, subpage
       <section className="side-groups" aria-labelledby="side-groups-heading">
         <h2 id="side-groups-heading">表示するグループ</h2>
         <ul>{GROUPS.map(group => <li key={group.id}>
-          <label><input type="checkbox" checked={!visible || visible.has(group.id)} disabled={!onToggleGroup} onChange={() => onToggleGroup?.(group.id)} /><GroupDot group={group.id} />{group.name}</label>
+          <label>
+            <input type="checkbox" checked={!visible || visible.has(group.id)} disabled={!onToggleGroup} onChange={() => onToggleGroup?.(group.id)} />
+            <span className="side-group-name"><GroupDot group={group.id} />{group.name}</span>
+          </label>
         </li>)}</ul>
       </section>
       <section className="side-day" aria-label="選択した日の予定">
