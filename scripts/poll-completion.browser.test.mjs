@@ -62,6 +62,15 @@ test('host answer state is explicit and the confirm completion screen does not l
     await complete.waitFor();
     assert.equal(await complete.evaluate(heading => heading === document.activeElement), true, 'the completion heading must receive focus');
     await page.getByText('いつメンのカレンダーに追加しました').waitFor();
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+    await page.getByRole('heading', { name: '餃子の会', level: 1 }).waitFor();
+    assert.equal(await page.locator('.confirm-complete').count(), 0, 'a persisted pageshow must clear the completion screen');
+
+    pollA.status = 'open';
+    pollA.confirmedCandidateId = null;
+    await page.goto(`${origin}/polls/poll-a`);
+    await page.getByRole('button', { name: /に確定する/ }).tap();
+    await page.getByRole('heading', { name: '日程が決まりました', level: 1 }).waitFor();
     await page.getByRole('link', { name: 'カレンダーで見る' }).tap();
     await page.getByRole('grid', { name: '2026年11月のカレンダー' }).waitFor();
     await page.goBack();
