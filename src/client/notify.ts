@@ -1,7 +1,6 @@
 import { dateKey } from '../shared/model';
-import { fetchCalendar, fetchNotificationSettings, type NotificationSettings } from './api';
+import { fetchCalendar, fetchNotificationSettings } from './api';
 import { digestBody, fireAt, shouldFire } from './notifyLogic';
-
 
 /**
  * #32 予定通知。採用した手段はブラウザの通知APIによるローカル通知（docs/notifications.md）。
@@ -11,30 +10,42 @@ import { digestBody, fireAt, shouldFire } from './notifyLogic';
 
 export const FIRED_KEY = 'sorouyo-notify-fired';
 
-
-
-
 const notified = (day: string) => localStorage.setItem(FIRED_KEY, day);
+
+// AndroidのChromeは new Notification() を投げるため、Service Worker経由の表示を優先する
+async function showNotification(title: string, options: NotificationOptions): Promise<void> {
+  if ('serviceWorker' in navigator) {
+    try {
+      const registration = await navigator.serviceWorker.register('/sw.js');
+      await registration.showNotification(title, options);
+      return;
+    } catch { /* Service Workerが使えない環境はコンストラクタに倒す */ }
+  }
+  new Notification(title, options);
+}
 
 /** 発射判定と通知本体。設定・予定・許可をその時点で確認し直す。戻り値は通知を出したか */
 export async function fireTodayNotification(now: Date): Promise<boolean> {
   if (!('Notification' in window) || Notification.permission !== 'granted') return false;
+  const today = dateKey(now);
+  // 別タブのタイマーと同日に重なっても1回だけにする
+  if (localStorage.getItem(FIRED_KEY) === today) return false;
   const settings = await fetchNotificationSettings();
   if (!settings?.enabled) return false;
-  const today = dateKey(now);
   const month = today.slice(0, 7);
   const events = (await fetchCalendar(month) ?? []).filter(event => event.date === today);
-  // 対象の予定がなければその日は通知しない。既読扱いにして繰り返し確認はしない
-  if (!events.length) { notified(today); return false; }
-  new Notification('そろうよ 今日の予定', { body: digestBody(events), tag: `sorouyo-${today}` });
+  // 対象の予定がなければ通知しない。既読にはせず、予定が増えてから開けば届くようにする
+  if (!events.length) return false;
+  // 通知を出す直前に二重発射を防ぐ。並行する発射は tag の置き換えで1件にまとまる
   notified(today);
+  await showNotification('そろうよ 今日の予定', { body: digestBody(events), tag: `sorouyo-${today}` });
   return true;
 }
 
 let scheduled = false;
 
 /** アプリ起動時に1度だけ呼ぶ。未ログインや未許可なら何もしない */
-export function scheduleEventNotifications(now: Date = new Date()): void {
+export function scheduleEventNotifications(): void {
   if (scheduled) return;
   scheduled = true;
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -57,5 +68,3 @@ export function resetNotificationSchedule(): void {
   scheduled = false;
   scheduleEventNotifications();
 }
-
-export type { NotificationSettings };

@@ -458,8 +458,8 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!can(subject, 'viewTally', target) && !can(subject, 'viewPoll', target)) {
       return c.json({ error: 'forbidden' } as const, 403);
     }
-    const myKeyEarly = subject.userId ? `u:${subject.userId}` : undefined;
-    const tallyAllowedEarly = can(subject, 'viewTally', target);
+    const myKey = subject.userId ? `u:${subject.userId}` : undefined;
+    const tallyAllowed = can(subject, 'viewTally', target);
     const [group, candidates, answers, votes, host, memberRows] = await Promise.all([
       get<GroupRow>(c.env.DB.prepare(`SELECT id, name, color FROM groups WHERE id = ?`).bind(poll.group_id).first()),
       all<CandidateRow>(c.env.DB.prepare(`SELECT * FROM candidates WHERE poll_id = ? ORDER BY position`).bind(poll.id).all()),
@@ -469,7 +469,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
       ).bind(poll.id).all()),
       get<{ display_name: string | null }>(c.env.DB.prepare(`SELECT display_name FROM users WHERE id = ?`).bind(poll.creator_id).first()),
       // 催促対象の分け方（#7）は作成者だけに返す。メンバー一覧はゲスト・一般メンバーに出さない
-      tallyAllowedEarly
+      tallyAllowed
         ? all<{ user_id: string; display_name: string | null; email: string | null; answered: number }>(c.env.DB.prepare(
             `SELECT m.user_id, u.display_name, u.email,
                     EXISTS(SELECT 1 FROM answers a WHERE a.poll_id = ? AND a.respondent_key = 'u:' || m.user_id) AS answered
@@ -483,8 +483,6 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
       if (!entry) votesBy.set(v.respondent_key, entry = {});
       entry[v.candidate_id] = v.value;
     }
-    const myKey = myKeyEarly;
-    const tallyAllowed = tallyAllowedEarly;
     return c.json({
       poll: {
         id: poll.id,
