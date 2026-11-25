@@ -486,8 +486,10 @@ describe('data', () => {
 
     // 古いフォームの名前・票で部分的に上書きされていない（消えた候補の票だけ編集側の削除が残る）
     const after = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } });
-    const { poll: saved } = await after.json() as { poll: { answers: { name: string; comment: string | null; votes: Record<string, string> }[] } };
+    const { poll: saved } = await after.json() as { poll: { editVersion: number; answers: { name: string; comment: string | null; votes: Record<string, string> }[] } };
     expect(saved.answers[0]).toMatchObject({ name: '元の名前', comment: '元のメモ', votes: { [kept!.id]: 'yes' } });
+    // 拒否した回答では編集バージョンを進めない（進んでいるのは主催者の編集分だけ）
+    expect(saved.editVersion).toBe(latest.editVersion + 1);
   });
 
   test('グループ: 作成→名前・色の更新が一覧と予定に反映され、管理者以外は変更できない', async () => {
