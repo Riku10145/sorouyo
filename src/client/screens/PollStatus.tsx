@@ -116,7 +116,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
     canViewTally={me?.user.id === remote.creatorId}
     viewerName={viewerName}
     onConfirm={index => confirmCandidate(remote.id, remote.candidates[index]!.id)}
-    onUnconfirm={() => unconfirmPoll(remote.id)}
+    onUnconfirm={candidateId => unconfirmPoll(remote.id, candidateId)}
     onCopyLink={link}
     onAnswerLink={async () => { const url = await link(); window.location.href = url; }} />;
 }
@@ -130,7 +130,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   /** 回答前の自分を一覧に出すためのログイン中の表示名 */
   viewerName?: string;
   onConfirm?: (index: number) => Promise<boolean>;
-  onUnconfirm?: () => Promise<boolean>;
+  onUnconfirm?: (candidateId: string) => Promise<boolean>;
   onCopyLink?: () => Promise<string>;
   onAnswerLink?: () => void;
 }) {
@@ -196,10 +196,11 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   const unconfirming = useRef(false);
   const unconfirm = async () => {
     if (confirmed === null || unconfirming.current) return;
-    if (!window.confirm('確定を取り消しますか？カレンダーの予定は消え、回答は保持されたまま再調整できます。')) return;
+    if (!window.confirm('確定を取り消しますか？カレンダーの予定は消え、編集した予定名・メモは再確定時の新しい予定に引き継がれません。回答は保持されたまま再調整できます。')) return;
     unconfirming.current = true;
     let ok = true;
-    try { ok = onUnconfirm ? await onUnconfirm() : true; }
+    const candidateId = poll.candidates[confirmed]?.id;
+    try { ok = onUnconfirm && candidateId ? await onUnconfirm(candidateId) : true; }
     catch { ok = false; }
     finally { unconfirming.current = false; }
     if (!ok) { toast('確定を取り消せませんでした'); return; }

@@ -345,15 +345,33 @@ describe('data', () => {
     const resend = await post(app, db, '/api/invite/answer', { token, name: 'さき', votes: [{ candidateId: chosen.id, value: 'no' }] }, answerer);
     expect(resend.status).toBe(410);
 
+    // 古い確定画面の取消は別候補への再確定を消せない
+    expect((await post(app, db, `/api/polls/${pollId}/unconfirm`, { candidateId: poll.candidates[1]!.id }, host)).status).toBe(409);
+    const calStill = await req(app, db, '/api/calendar?month=2026-04', { headers: { cookie: member } });
+    expect((await calStill.json() as { events: { id: string }[] }).events.map(e => e.id)).toEqual([event.id]);
+
     // 取消すると予定が消え、同じ回答リンクは残った候補への回答を保ったまま受付に戻る
-    expect((await post(app, db, `/api/polls/${pollId}/unconfirm`, {}, host)).status).toBe(200);
+    expect((await post(app, db, `/api/polls/${pollId}/unconfirm`, { candidateId: chosen.id }, host)).status).toBe(200);
     const cal2 = await req(app, db, '/api/calendar?month=2026-04', { headers: { cookie: member } });
     expect((await cal2.json() as { events: unknown[] }).events).toHaveLength(0);
     const inviteAfter = await post(app, db, '/api/invite', { token }, answerer);
     const reopened = (await inviteAfter.json() as { poll: { accepting: boolean; confirmed: unknown; ownAnswer: { votes: Record<string, string> } } }).poll;
-    expect(reopened.accepting).toBe(true);
+    expect(reopened.accepting).toBe(false);
     expect(reopened.confirmed).toBeNull();
     expect(reopened.ownAnswer.votes[chosen.id]).toBe('yes');
+
+    // 新しい締切を保存するまでは受付を再開しない
+    const memberView = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } });
+    const editPoll = (await memberView.json() as { poll: { editVersion: number; candidates: { id: string; date: string; startTime: string | null }[] } }).poll;
+    const deadlineAt = new Date(Date.now() + 86_400_000).toISOString();
+    expect((await mutate(app, db, 'PATCH', `/api/polls/${pollId}`, {
+      editVersion: editPoll.editVersion,
+      title: '花見の日程',
+      deadlineAt,
+      candidates: editPoll.candidates.map(c => ({ id: c.id, date: c.date, time: c.startTime })),
+    }, host)).status).toBe(200);
+    const inviteReopened = await post(app, db, '/api/invite', { token }, answerer);
+    expect(((await inviteReopened.json() as { poll: { accepting: boolean } }).poll).accepting).toBe(true);
 
     // 別候補で再確定すると新しい予定だけが1件載る
     const otherCandidate = poll.candidates[1]!;
@@ -368,7 +386,7 @@ describe('data', () => {
 
     // 確定済みは削除できない。取消後は削除でき、リンクは無効案内になる
     expect((await mutate(app, db, 'DELETE', `/api/polls/${pollId}`, {}, host)).status).toBe(409);
-    await post(app, db, `/api/polls/${pollId}/unconfirm`, {}, host);
+    await post(app, db, `/api/polls/${pollId}/unconfirm`, { candidateId: otherCandidate.id }, host);
     expect((await mutate(app, db, 'DELETE', `/api/polls/${pollId}`, {}, host)).status).toBe(204);
     expect((await post(app, db, '/api/invite', { token }, answerer)).status).toBe(404);
   });
@@ -678,8 +696,20 @@ describe('data', () => {
     ] }, answerer);
 
     // メンバー編集は403。主催者は候補1を保持し、候補2の日付変更を削除＋追加として保存できる
-    expect((await mutate(app, db, 'PATCH', `/api/polls/${pollId}`, { title: 'x', candidates: [{ id: first!.id, date: first!.date, time: first!.startTime }] }, member)).status).toBe(403);
+    expect((await mutate(app, db, 'PATCH', `/api/polls/${pollId}`, { editVersion: 0, title: 'x', candidates: [{ id: first!.id, date: first!.date, time: first!.startTime }] }, member)).status).toBe(403);
+    const beforeEdit = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } });
+    const editVersion = (await beforeEdit.json() as { poll: { editVersion: number } }).poll.editVersion;
+    const otherAnswerer = await guest(app, db);
+    await post(app, db, '/api/invite/answer', { token, name: 'あとから', votes: [{ candidateId: first!.id, value: 'yes' }] }, otherAnswerer);
+    expect((await mutate(app, db, 'PATCH', `/api/polls/${pollId}`, {
+      editVersion,
+      title: '古い画面から保存',
+      candidates: [{ id: first!.id, date: first!.date, time: first!.startTime }],
+    }, host)).status).toBe(409);
+    const refreshedEdit = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } });
+    const freshVersion = (await refreshedEdit.json() as { poll: { editVersion: number } }).poll.editVersion;
     const patched = await mutate(app, db, 'PATCH', `/api/polls/${pollId}`, {
+      editVersion: freshVersion,
       title: '花見の日程変更',
       deadlineAt: '2027-01-01T00:00:00.000Z',
       candidates: [
@@ -701,10 +731,18 @@ describe('data', () => {
     expect(changed.ownAnswer.votes[second!.id]).toBeUndefined();
     expect(changed.ownAnswer.votes[changed.candidates[1]!.id]).toBeUndefined();
 
+    // 編集前の古い回答フォームから、消えた候補を混ぜた送信は一部だけ受理しない
+    const staleSubmit = await post(app, db, '/api/invite/answer', { token, name: 'さき', votes: [
+      { candidateId: first!.id, value: 'no' }, { candidateId: second!.id, value: 'yes' },
+    ] }, answerer);
+    expect(staleSubmit.status).toBe(409);
+    const afterStale = await post(app, db, '/api/invite', { token }, answerer);
+    expect(((await afterStale.json() as { poll: { ownAnswer: { votes: Record<string, string> } } }).poll.ownAnswer.votes[first!.id])).toBe('yes');
+
     // 確定済みは編集できない
     const confirm = await post(app, db, `/api/polls/${pollId}/confirm`, { candidateId: first!.id }, host);
     expect(confirm.status).toBe(200);
-    expect((await mutate(app, db, 'PATCH', `/api/polls/${pollId}`, { title: 'x', candidates: [{ id: first!.id, date: first!.date, time: first!.startTime }] }, host)).status).toBe(409);
+    expect((await mutate(app, db, 'PATCH', `/api/polls/${pollId}`, { editVersion: 0, title: 'x', candidates: [{ id: first!.id, date: first!.date, time: first!.startTime }] }, host)).status).toBe(409);
   });
 
 });

@@ -19,7 +19,7 @@ type C = Context<{ Bindings: DataEnv }>;
 const now = () => new Date().toISOString();
 
 /** 回答を受け付ける条件（service-design.md: 受付中かどうかをSQLの条件に含める）。 */
-const OPEN_WHERE = `status = 'open' AND (deadline_at IS NULL OR deadline_at > ?)`;
+const OPEN_WHERE = `status = 'open' AND reopen_pending = 0 AND (deadline_at IS NULL OR deadline_at > ?)`;
 
 const sha256 = async (text: string) =>
   [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))]
@@ -35,6 +35,7 @@ interface PollRow {
   id: string; group_id: string; creator_id: string; title: string;
   deadline_at: string | null; status: 'open' | 'confirmed';
   confirmed_candidate_id: string | null; created_at: string;
+  edit_version: number; reopen_pending: number;
 }
 interface CandidateRow { id: string; poll_id: string; position: number; date: string; start_time: string | null }
 interface AnswerRow {
@@ -141,6 +142,10 @@ async function writeAnswer(
       `DELETE FROM votes WHERE answer_id = (SELECT id FROM answers WHERE poll_id = ? AND respondent_key = ?)
        AND EXISTS (SELECT 1 FROM polls WHERE id = ? AND ${OPEN_WHERE})`
     ).bind(pollId, key, pollId, at),
+    // 回答書き込みで調整の版を進め、開いていた編集画面が新しい票を見落としたまま保存しないようにする
+    c.env.DB.prepare(
+      `UPDATE polls SET edit_version = edit_version + 1 WHERE id = ? AND ${OPEN_WHERE}`
+    ).bind(pollId, at),
   ];
   for (const vote of votes) {
     stmts.push(c.env.DB.prepare(
@@ -181,11 +186,13 @@ const answerBody = z.object({
   votes: z.array(z.object({ candidateId: z.string().min(1), value: voteSchema })).max(50),
 });
 const confirmBody = z.object({ candidateId: z.string().min(1) });
+const unconfirmBody = z.object({ candidateId: z.string().min(1) });
 const eventBody = z.object({
   date: z.iso.date(), time: timeSchema.nullish(), title: z.string().trim().min(1).max(60), memo: z.string().trim().max(500).nullish(),
 });
 const candidateInput = z.object({ id: z.string().min(1).optional(), date: z.iso.date(), time: timeSchema.nullish() });
 const updatePollBody = z.object({
+  editVersion: z.number().int().nonnegative(),
   title: z.string().trim().min(1).max(60),
   deadlineAt: z.iso.datetime().nullish(),
   candidates: z.array(candidateInput).min(1).max(31),
@@ -475,7 +482,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
         title: p.title,
         status: p.status,
         deadlineAt: p.deadline_at,
-        accepting: p.status === 'open' && (!p.deadline_at || p.deadline_at > at),
+        accepting: p.status === 'open' && !p.reopen_pending && (!p.deadline_at || p.deadline_at > at),
         group: { id: p.group_id, name: p.group_name, color: p.group_color },
         creator: p.creator_id === subject.userId,
         candidatesCount: p.candidate_count,
@@ -520,6 +527,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
         status: poll.status,
         deadlineAt: poll.deadline_at,
         confirmedCandidateId: poll.confirmed_candidate_id,
+        editVersion: poll.edit_version,
         group: group!,
         creatorId: poll.creator_id,
         hostName: host?.display_name ?? null,
@@ -563,20 +571,32 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     }
     const kept = new Set(rows.filter(row => row.unchanged).map(row => row.id));
     const removed = current.filter(row => !kept.has(row.id)).map(row => row.id);
+    const deadlineAt = body.data.deadlineAt ? new Date(body.data.deadlineAt).toISOString() : null;
+    const clearsReopen = deadlineAt !== null && new Date(deadlineAt).getTime() > Date.now();
+    const version = body.data.editVersion;
+    const editGuard = `EXISTS (SELECT 1 FROM polls WHERE id = ? AND status = 'open' AND edit_version = ?)`;
     const stmts = [
-      c.env.DB.prepare(`UPDATE polls SET title = ?, deadline_at = ? WHERE id = ? AND status = 'open'`)
-        .bind(body.data.title, body.data.deadlineAt ? new Date(body.data.deadlineAt).toISOString() : null, poll.id),
+      c.env.DB.prepare(
+        `UPDATE polls SET title = ?, deadline_at = ?, reopen_pending = ?
+         WHERE id = ? AND status = 'open' AND edit_version = ?`
+      ).bind(body.data.title, deadlineAt, clearsReopen ? 0 : poll.reopen_pending, poll.id, version),
       // UNIQUE(poll_id, position) の即時制約を避けるため、再配置の間は既存候補を一時的に大きな位置へ退避する
-      ...current.map(row => c.env.DB.prepare(`UPDATE candidates SET position = ? WHERE id = ?`).bind(row.position + 1000, row.id)),
-      ...removed.map(id => c.env.DB.prepare(`DELETE FROM votes WHERE candidate_id = ?`).bind(id)),
-      ...removed.map(id => c.env.DB.prepare(`DELETE FROM candidates WHERE id = ?`).bind(id)),
-      ...rows.filter(row => !row.unchanged).map(row => c.env.DB.prepare(`INSERT INTO candidates (id, poll_id, position, date, start_time) VALUES (?, ?, ?, ?, ?)`)
-        .bind(row.id, poll.id, row.position, row.date, row.time)),
-      ...rows.filter(row => row.unchanged).map(row => c.env.DB.prepare(`UPDATE candidates SET position = ? WHERE id = ?`)
-        .bind(row.position, row.id)),
+      ...current.map(row => c.env.DB.prepare(`UPDATE candidates SET position = ? WHERE id = ? AND ${editGuard}`)
+        .bind(row.position + 1000, row.id, poll.id, version)),
+      ...removed.map(id => c.env.DB.prepare(`DELETE FROM votes WHERE candidate_id = ? AND ${editGuard}`)
+        .bind(id, poll.id, version)),
+      ...removed.map(id => c.env.DB.prepare(`DELETE FROM candidates WHERE id = ? AND ${editGuard}`)
+        .bind(id, poll.id, version)),
+      ...rows.filter(row => !row.unchanged).map(row => c.env.DB.prepare(
+        `INSERT INTO candidates (id, poll_id, position, date, start_time) SELECT ?, ?, ?, ?, ? WHERE ${editGuard}`
+      ).bind(row.id, poll.id, row.position, row.date, row.time, poll.id, version)),
+      ...rows.filter(row => row.unchanged).map(row => c.env.DB.prepare(`UPDATE candidates SET position = ? WHERE id = ? AND ${editGuard}`)
+        .bind(row.position, row.id, poll.id, version)),
+      c.env.DB.prepare(`UPDATE polls SET edit_version = edit_version + 1 WHERE id = ? AND status = 'open' AND edit_version = ?`)
+        .bind(poll.id, version),
     ];
     const results = await c.env.DB.batch(stmts);
-    if (!results[0]!.meta.changes) return c.json({ error: 'already_confirmed' } as const, 409);
+    if (!results[results.length - 1]!.meta.changes) return c.json({ error: 'conflict' } as const, 409);
     return c.json({ poll: { id: poll.id, status: 'open' } } as const);
   })
 
@@ -591,14 +611,16 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!can(subject, 'editPoll', target)) return c.json({ error: 'forbidden' } as const, 403);
     if (poll.status !== 'open') return c.json({ error: 'already_confirmed' } as const, 409);
     const inAnswers = `SELECT id FROM answers WHERE poll_id = ?`;
-    await c.env.DB.batch([
-      c.env.DB.prepare(`DELETE FROM votes WHERE answer_id IN (${inAnswers}) OR candidate_id IN (SELECT id FROM candidates WHERE poll_id = ?)`).bind(poll.id, poll.id),
-      c.env.DB.prepare(`DELETE FROM answers WHERE poll_id = ?`).bind(poll.id),
-      c.env.DB.prepare(`DELETE FROM candidates WHERE poll_id = ?`).bind(poll.id),
-      c.env.DB.prepare(`DELETE FROM invites WHERE poll_id = ?`).bind(poll.id),
-      c.env.DB.prepare(`DELETE FROM events WHERE source_poll_id = ?`).bind(poll.id),
-      c.env.DB.prepare(`DELETE FROM polls WHERE id = ?`).bind(poll.id),
+    const openPoll = `EXISTS (SELECT 1 FROM polls WHERE id = ? AND status = 'open')`;
+    const results = await c.env.DB.batch([
+      c.env.DB.prepare(`DELETE FROM votes WHERE (answer_id IN (${inAnswers}) OR candidate_id IN (SELECT id FROM candidates WHERE poll_id = ?)) AND ${openPoll}`).bind(poll.id, poll.id, poll.id),
+      c.env.DB.prepare(`DELETE FROM answers WHERE poll_id = ? AND ${openPoll}`).bind(poll.id, poll.id),
+      c.env.DB.prepare(`DELETE FROM candidates WHERE poll_id = ? AND ${openPoll}`).bind(poll.id, poll.id),
+      c.env.DB.prepare(`DELETE FROM invites WHERE poll_id = ? AND ${openPoll}`).bind(poll.id, poll.id),
+      c.env.DB.prepare(`DELETE FROM events WHERE source_poll_id = ? AND ${openPoll}`).bind(poll.id, poll.id),
+      c.env.DB.prepare(`DELETE FROM polls WHERE id = ? AND status = 'open'`).bind(poll.id),
     ]);
+    if (!results[results.length - 1]!.meta.changes) return c.json({ error: 'already_confirmed' } as const, 409);
     return c.body(null, 204);
   })
 
@@ -630,7 +652,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const eventId = crypto.randomUUID();
     const results = await c.env.DB.batch([
       c.env.DB.prepare(
-        `UPDATE polls SET status = 'confirmed', confirmed_candidate_id = ? WHERE id = ? AND status = 'open'`
+        `UPDATE polls SET status = 'confirmed', confirmed_candidate_id = ?, reopen_pending = 0, edit_version = edit_version + 1 WHERE id = ? AND status = 'open'`
       ).bind(candidateId, poll.id),
       c.env.DB.prepare(
         `INSERT INTO events (id, group_id, date, start_time, title, source_poll_id, created_at)
@@ -652,8 +674,8 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     return c.json({ poll: { id: poll.id, status: 'confirmed', confirmedCandidateId: candidateId }, event: event ?? null } as const, 200);
   })
 
-  // 確定の取り消し（作成者のみ）。調整の状態変更と予定の削除を同一バッチで行う
-  .post('/polls/:id/unconfirm', async (c) => {
+  // 確定の取り消し（作成者のみ）。古い確定画面からの取消が新しい確定を消さないよう、対象候補を条件にする
+  .post('/polls/:id/unconfirm', json(unconfirmBody), async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const subject = await subjectOf(c);
     if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
@@ -661,10 +683,22 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!poll) return c.json({ error: 'not_found' } as const, 404);
     const target = await pollTarget(c, poll, false);
     if (!can(subject, 'confirmPoll', target)) return c.json({ error: 'forbidden' } as const, 403);
-    await c.env.DB.batch([
-      c.env.DB.prepare(`UPDATE polls SET status = 'open', confirmed_candidate_id = NULL WHERE id = ? AND status = 'confirmed'`).bind(poll.id),
-      c.env.DB.prepare(`DELETE FROM events WHERE source_poll_id = ?`).bind(poll.id),
+    const { candidateId } = c.req.valid('json');
+    const results = await c.env.DB.batch([
+      c.env.DB.prepare(
+        `UPDATE polls SET status = 'open', confirmed_candidate_id = NULL, deadline_at = ?, reopen_pending = 1, edit_version = edit_version + 1
+         WHERE id = ? AND status = 'confirmed' AND confirmed_candidate_id = ?`
+      ).bind(now(), poll.id, candidateId),
+      c.env.DB.prepare(
+        `DELETE FROM events WHERE source_poll_id = ? AND EXISTS (
+           SELECT 1 FROM polls WHERE id = ? AND status = 'open' AND confirmed_candidate_id IS NULL
+         )`
+      ).bind(poll.id, poll.id),
     ]);
+    if (!results[0]!.meta.changes) {
+      const latest = await get<PollRow>(c.env.DB.prepare(`SELECT * FROM polls WHERE id = ?`).bind(poll.id).first());
+      if (latest?.status !== 'open') return c.json({ error: 'conflict' } as const, 409);
+    }
     return c.json({ poll: { id: poll.id, status: 'open' } } as const, 200);
   })
 
@@ -737,7 +771,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
         : Promise.resolve(null),
       get<{ display_name: string | null }>(c.env.DB.prepare(`SELECT display_name FROM users WHERE id = ?`).bind(poll.creator_id).first()),
     ]);
-    const accepting = poll.status === 'open' && (!poll.deadline_at || poll.deadline_at > now());
+    const accepting = poll.status === 'open' && !poll.reopen_pending && (!poll.deadline_at || poll.deadline_at > now());
     return c.json({
       poll: {
         id: poll.id,
@@ -791,21 +825,24 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const validIds = new Set(
       (await all<{ id: string }>(c.env.DB.prepare(`SELECT id FROM candidates WHERE poll_id = ?`).bind(poll.id).all())).map(row => row.id)
     );
+    const stale = body.data.votes.some(v => !validIds.has(v.candidateId));
     const seen = new Set<string>();
     const votes = body.data.votes.filter(v => validIds.has(v.candidateId) && !seen.has(v.candidateId) && (seen.add(v.candidateId), true));
     if (!votes.length) return c.json({ error: 'invalid_body' } as const, 400);
+    // 編集で消えた候補を混ぜた古いフォームの送信は、残った候補だけを受理済みに見せず競合として返す
+    if (stale) return c.json({ error: 'stale_candidates' } as const, 409);
 
     // 締切・確定済みの調整には、既存回答があっても新しい送信を受け付けない
-    const accepting = poll.status === 'open' && (!poll.deadline_at || new Date(poll.deadline_at).getTime() > Date.now());
+    const accepting = poll.status === 'open' && !poll.reopen_pending && (!poll.deadline_at || new Date(poll.deadline_at).getTime() > Date.now());
     if (!accepting) return c.json({ error: 'closed' } as const, 410);
 
     const { saved, savedVotes } = await writeAnswer(c, poll.id, key, ids, body.data.name, body.data.comment ?? null, votes);
     // 受付チェックと書き込みの間に確定・締切が入ると条件付きSQLは0行になる。書き込み後に再読して、
     // 締まっていれば410、受付中なら最新の回答を冪等に返す（同一回答者の競合書き込みも受理扱い）
-    const latest = await get<Pick<PollRow, 'status' | 'deadline_at'>>(c.env.DB.prepare(
-      `SELECT status, deadline_at FROM polls WHERE id = ?`
+    const latest = await get<Pick<PollRow, 'status' | 'deadline_at' | 'reopen_pending'>>(c.env.DB.prepare(
+      `SELECT status, deadline_at, reopen_pending FROM polls WHERE id = ?`
     ).bind(poll.id).first());
-    const stillOpen = latest?.status === 'open' && (!latest.deadline_at || new Date(latest.deadline_at).getTime() > Date.now());
+    const stillOpen = latest?.status === 'open' && !latest.reopen_pending && (!latest.deadline_at || new Date(latest.deadline_at).getTime() > Date.now());
     if (!stillOpen) return c.json({ error: 'closed' } as const, 410);
     if (!saved || (votes.length && !savedVotes.length)) return c.json({ error: 'conflict' } as const, 409);
     return c.json({

@@ -26,6 +26,7 @@ export interface MemberPoll {
   status: 'open' | 'confirmed';
   deadlineAt: string | null;
   confirmedCandidateId: string | null;
+  editVersion: number;
   group: { id: string; name: string; color: string | null };
   creatorId: string;
   hostName: string | null;
@@ -205,10 +206,10 @@ export async function deleteEvent(id: string): Promise<boolean> {
 
 export async function updatePoll(
   id: string,
-  body: { title: string; deadlineAt?: string | null; candidates: { id?: string; date: string; time?: string | null }[] },
-): Promise<boolean> {
+  body: { editVersion: number; title: string; deadlineAt?: string | null; candidates: { id?: string; date: string; time?: string | null }[] },
+): Promise<number> {
   const response = await api.api.polls[':id'].$patch({ param: { id }, json: body });
-  return response.ok;
+  return response.status;
 }
 
 export async function deletePoll(id: string): Promise<boolean> {
@@ -216,8 +217,8 @@ export async function deletePoll(id: string): Promise<boolean> {
   return response.ok;
 }
 
-export async function unconfirmPoll(id: string): Promise<boolean> {
-  const response = await api.api.polls[':id'].unconfirm.$post({ param: { id } });
+export async function unconfirmPoll(id: string, candidateId: string): Promise<boolean> {
+  const response = await api.api.polls[':id'].unconfirm.$post({ param: { id }, json: { candidateId } });
   return response.ok;
 }
 

@@ -111,13 +111,17 @@ export function PollEdit({ id, selectedDate }: { id: string; selectedDate: strin
     if (votes && !window.confirm(`変更・削除される候補には合計${votes}件の票があります。票は消えますが、保存しますか？`)) return;
     setBusy(true);
     setError(null);
-    const ok = await updatePoll(id, {
+    const status = await updatePoll(id, {
+      editVersion: poll!.editVersion,
       title: title.trim(),
       deadlineAt: deadline ? new Date(`${deadline}:00+09:00`).toISOString() : null,
       candidates: candidates.map(c => ({ id: c.id, date: c.date, time: c.time })),
-    }).catch(() => false);
+    }).catch(() => 0);
     setBusy(false);
-    if (!ok) { setError('保存できませんでした。確定済みでないか確認して、時間をおいて再度お試しください。'); return; }
+    if (status !== 200) {
+      setError(status === 409 ? '編集中に新しい回答または別の変更が入りました。画面を開き直して内容を確認してください。' : '保存できませんでした。確定済みでないか確認して、時間をおいて再度お試しください。');
+      return;
+    }
     toast('日程調整を保存しました');
     window.location.href = `/polls/${id}`;
   };
