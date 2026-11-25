@@ -311,7 +311,7 @@ function RemoteHome({ today, initialDate }: { today: string; initialDate: string
       dayLink={event => event.id ? `/events/${event.id}` : null}
     />
     {addDate && <AddEventSheet groups={groups} date={addDate} onClose={() => setAddDate(null)} onCreated={() => {
-      void loadMonth(viewMonth, true);
+      void loadMonth(addDate.slice(0, 7), true);
       setAddDate(null);
     }} />}
   </>;
