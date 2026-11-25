@@ -38,7 +38,7 @@ function makeDb(): D1Database {
     };
     return stmt;
   };
-  return {
+  const shim = {
     prepare: (sql: string) => prepare(sql),
     batch: async (stmts: { run: () => Promise<unknown> }[]) => {
       db.exec('BEGIN');
@@ -52,7 +52,13 @@ function makeDb(): D1Database {
         throw e;
       }
     },
-  } as unknown as D1Database;
+  } as unknown as D1Database & { rawDb: DatabaseSync };
+  shim.rawDb = db;
+  return shim;
+}
+
+function rawDb(db: D1Database): DatabaseSync {
+  return (db as D1Database & { rawDb: DatabaseSync }).rawDb;
 }
 
 // --- WorkOS のフェイク（code_XX -> user_XX の対応だけ見る） ------------------
@@ -415,19 +421,17 @@ describe('data', () => {
     // 編集前の画面が残していても、消えた候補では確定できない
     expect((await post(app, db, `/api/polls/${pollId}/confirm`, { candidateId: removed.id }, host)).status).toBe(400);
     const remaining = poll.candidates[1]!;
-    const current = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } });
-    const { poll: latest } = await current.json() as { poll: { editVersion: number } };
-    expect((await mutate(app, db, 'PATCH', `/api/polls/${pollId}`, {
-      editVersion: latest.editVersion,
-      title: '花見の日程',
-      deadlineAt,
-      candidates: [{ date: '2026-04-05', time: null }],
-    }, host)).status).toBe(200);
+    // 確定APIが候補を照合した後、確定バッチの直前に候補が消える競合を再現する
+    const originalBatch = db.batch.bind(db);
+    db.batch = async (stmts) => {
+      rawDb(db).prepare(`DELETE FROM candidates WHERE id = ?`).run(remaining.id);
+      return originalBatch(stmts);
+    };
     const raced = await post(app, db, `/api/polls/${pollId}/confirm`, { candidateId: remaining.id }, host);
-    expect(raced.status).toBe(400);
-    const after = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } });
-    const { poll: state } = await after.json() as { poll: { status: string; confirmedCandidateId: string | null } };
-    expect(state).toMatchObject({ status: 'open', confirmedCandidateId: null });
+    expect(raced.status).toBe(409);
+    const state = rawDb(db).prepare(`SELECT status, confirmed_candidate_id FROM polls WHERE id = ?`).get(pollId) as { status: string; confirmed_candidate_id: string | null };
+    expect(state).toEqual({ status: 'open', confirmed_candidate_id: null });
+    expect(rawDb(db).prepare(`SELECT COUNT(*) AS count FROM events WHERE source_poll_id = ?`).get(pollId)).toMatchObject({ count: 0 });
   });
 
   test('グループ: 作成→名前・色の更新が一覧と予定に反映され、管理者以外は変更できない', async () => {
