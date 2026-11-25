@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { Context } from 'hono';
+import type { Context, Next } from 'hono';
 import { z } from 'zod';
 import { validator } from 'hono/validator';
 import { voteSchema } from '../shared/schema';
@@ -63,6 +63,17 @@ const limitAnswer = async (
 // 本番ではCloudflareが付けるIPを使う。ローカル/テストではヘッダが無いことがあるため、
 // フォールバック制限が効くよう同一の未知送信元として扱う。
 const clientIp = (c: C) => c.req.header('cf-connecting-ip')?.trim() || 'unknown';
+
+/** 送信元IP制限は入力検証より先に行い、不正な本文の連投もカウントする。 */
+const limitAnswerIp = async (c: C, next: Next) => {
+  if (!await limitAnswer(
+    c.env.ANSWER_IP_RATE_LIMIT,
+    `answer-ip:${clientIp(c)}`,
+    c.env.ANSWER_IP_RATE_LIMIT_PER_MINUTE,
+    60,
+  )) return rateLimited(c);
+  await next();
+};
 
 // --- DB行 -------------------------------------------------------------------
 
@@ -689,13 +700,9 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
   })
 
   // ゲスト・メンバーの回答（○△×）。同一送信の再試行は (poll_id, respondent_key) で1件に統合
-  .post('/invite/answer', json(answerBody), async (c) => {
+  .post('/invite/answer', limitAnswerIp, json(answerBody), async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const body = { data: c.req.valid('json') };
-    const ip = clientIp(c);
-    if (!await limitAnswer(
-      c.env.ANSWER_IP_RATE_LIMIT, `answer-ip:${ip}`, c.env.ANSWER_IP_RATE_LIMIT_PER_MINUTE, 60,
-    )) return rateLimited(c);
     const invite = await findInvite(c, body.data.token);
     if (!invite || invite.purpose !== 'answer' || !invite.poll_id) {
       return c.json({ error: 'invite_invalid' } as const, 404);
