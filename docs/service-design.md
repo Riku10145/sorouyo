@@ -43,7 +43,7 @@ Workerは検証済みの `(iss, sub)` をD1の内部ユーザーに対応させ�
 
 回答の受付条件はDBへの書き込みにも含める。回答行の作成・更新と各票の作成・削除・更新は、いずれも対象調整が受付中であることをSQLの条件に含め、同一バッチで実行する。受付中でなければ条件付きの書き込みは0行で終わるので、APIは影響した行数を確認して受付終了を返す。外部キー違反はエラーになり、バッチ全体をロールバックする。確定と回答が重なったときは、確定より先に成立した回答だけが残る。失効したリンクには対象情報を出さず、締切後・確定後の有効なリンクにはその調整の状態を返す。
 
-ログイン不要の回答APIは、招待トークンとゲスト識別子の組み合わせごとに短時間の更新回数を制限する。異常な送信量にはWorkers Rate Limitingを使い、必要時だけ送信元の範囲を広げて追加制限する。制限に達した場合は429を返し、既存回答を変更しない。[Workers Rate Limiting](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)
+ログイン不要の回答APIは、招待トークンと回答者識別子（ゲストはゲスト識別子、メンバーは利用者ID）の組み合わせごとに短時間の更新回数を制限する。既定は1分10回で、Workers Rate Limiting bindingで送信元IPごとに1分60回も制限する。上限は `wrangler.jsonc` のbinding設定で変更し、bindingがないテスト環境では同じ既定値のフォールバックを使う。制限に達した場合は429を返し、既存回答を変更しない。[Workers Rate Limiting](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)
 
 ## データの削除
 

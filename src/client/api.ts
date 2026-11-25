@@ -55,13 +55,14 @@ export async function fetchInvite(token: string): Promise<InviteResult> {
   return { status: 'ok', poll: (await response.json()).poll as InvitePoll };
 }
 
-export type AnswerResult = 'ok' | 'closed' | 'invalid' | 'forbidden' | 'error';
+export type AnswerResult = 'ok' | 'closed' | 'invalid' | 'forbidden' | 'rate_limited' | 'error';
 
 export async function submitAnswer(
   token: string, name: string, comment: string, votes: { candidateId: string; value: Vote }[],
 ): Promise<AnswerResult> {
   const response = await api.api.invite.answer.$post({ json: { token, name, comment, votes } });
   if (response.status === 410) return 'closed';
+  if (response.status === 429) return 'rate_limited';
   if (response.status === 403) return 'forbidden';
   if (response.status === 404) return 'invalid';
   return response.ok ? 'ok' : 'error';

@@ -12,6 +12,10 @@ import {
 
 export interface DataEnv extends AuthEnv {
   DB: D1Database;
+  ANSWER_RESPONDENT_RATE_LIMIT?: RateLimit;
+  ANSWER_IP_RATE_LIMIT?: RateLimit;
+  ANSWER_RESPONDENT_RATE_LIMIT_PER_MINUTE?: string;
+  ANSWER_IP_RATE_LIMIT_PER_MINUTE?: string;
 }
 
 type C = Context<{ Bindings: DataEnv }>;
@@ -26,6 +30,37 @@ const sha256 = async (text: string) =>
     .map(b => b.toString(16).padStart(2, '0')).join('');
 
 const newToken = () => crypto.randomUUID().replaceAll('-', '') + crypto.randomUUID().replaceAll('-', '');
+
+const RATE_LIMIT_MESSAGE = '少し時間をおいてもう一度お試しください';
+const rateLimited = (c: C) => c.json({ error: 'rate_limited', message: RATE_LIMIT_MESSAGE } as const, 429);
+
+// ユニットテストなどbindingがない環境向けのフォールバック。本番・ローカルWorkerでは
+// wrangler.jsonc の Rate Limiting binding が使われ、上限もそちらの simple.limit で変更する。
+const fallbackBuckets = new Map<string, { count: number; resetAt: number }>();
+const positiveInt = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+const fallbackLimit = (key: string, limit: number, at = Date.now()) => {
+  if (fallbackBuckets.size > 1000) {
+    for (const [bucketKey, bucket] of fallbackBuckets) if (bucket.resetAt <= at) fallbackBuckets.delete(bucketKey);
+  }
+  const bucket = fallbackBuckets.get(key);
+  if (!bucket || bucket.resetAt <= at) {
+    fallbackBuckets.set(key, { count: 1, resetAt: at + 60_000 });
+    return true;
+  }
+  if (bucket.count >= limit) return false;
+  bucket.count += 1;
+  return true;
+};
+const limitAnswer = async (
+  binding: RateLimit | undefined, key: string, configuredLimit: string | undefined, fallbackDefault: number,
+) => binding
+  ? (await binding.limit({ key })).success
+  : fallbackLimit(key, positiveInt(configuredLimit, fallbackDefault));
+
+const clientIp = (c: C) => c.req.header('cf-connecting-ip')?.trim() || undefined;
 
 // --- DB行 -------------------------------------------------------------------
 
@@ -655,6 +690,10 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
   .post('/invite/answer', json(answerBody), async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const body = { data: c.req.valid('json') };
+    const ip = clientIp(c);
+    if (ip && !await limitAnswer(
+      c.env.ANSWER_IP_RATE_LIMIT, `answer-ip:${ip}`, c.env.ANSWER_IP_RATE_LIMIT_PER_MINUTE, 60,
+    )) return rateLimited(c);
     const invite = await findInvite(c, body.data.token);
     if (!invite || invite.purpose !== 'answer' || !invite.poll_id) {
       return c.json({ error: 'invite_invalid' } as const, 404);
@@ -670,6 +709,12 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
 
     const ids = subject.userId ? { userId: subject.userId } : { guestId: subject.guestId! };
     const key = ids.userId ? `u:${ids.userId}` : `g:${ids.guestId}`;
+    if (!await limitAnswer(
+      c.env.ANSWER_RESPONDENT_RATE_LIMIT,
+      `answer-respondent:${invite.token_hash}:${key}`,
+      c.env.ANSWER_RESPONDENT_RATE_LIMIT_PER_MINUTE,
+      10,
+    )) return rateLimited(c);
 
     // リンク単位の簡易レート制限: 1時間に新しい回答者は30人まで。ゲスト識別子を取り直した連投への抑止。
     // 既に回答済みの人の変更は制限しない
@@ -681,7 +726,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
       const recent = await get<{ n: number }>(c.env.DB.prepare(
         `SELECT COUNT(DISTINCT respondent_key) AS n FROM answers WHERE poll_id = ? AND created_at > ?`
       ).bind(poll.id, hourAgo).first());
-      if ((recent?.n ?? 0) >= 30) return c.json({ error: 'rate_limited' } as const, 429);
+      if ((recent?.n ?? 0) >= 30) return rateLimited(c);
     }
 
     // 対象調整に属する候補だけを受理し、同一候補の重複送信は最初の1件に絞る
