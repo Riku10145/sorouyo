@@ -676,8 +676,11 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
       }
       return c.json({ error: 'conflict', confirmedCandidateId: latest?.confirmed_candidate_id ?? null } as const, 409);
     }
-    const event = await get<EventRow>(c.env.DB.prepare(`SELECT * FROM events WHERE source_poll_id = ?`).bind(poll.id).first());
-    return c.json({ poll: { id: poll.id, status: 'confirmed', confirmedCandidateId: candidateId }, event: event ?? null } as const, 200);
+    // バッチで生成した予定IDをそのまま返し、直後の再確定で別の予定IDを古い画面へ返さないようにする
+    return c.json({
+      poll: { id: poll.id, status: 'confirmed', confirmedCandidateId: candidateId },
+      event: { id: eventId, date: candidate.date, start_time: candidate.start_time },
+    } as const, 200);
   })
 
   // 確定の取り消し（作成者のみ）。古い確定画面からの取消が新しい確定を消さないよう、対象の予定IDを条件にする
