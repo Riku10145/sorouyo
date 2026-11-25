@@ -20,7 +20,7 @@ import { buildDataRoutes, type DataEnv } from './data';
 function makeDb(): D1Database {
   const db = new DatabaseSync(':memory:');
   // 新しい migration を足したらここにも列挙する
-  for (const file of ['0001_init.sql', '0002_invite_creator.sql']) {
+  for (const file of ['0001_init.sql', '0002_invite_creator.sql', '0003_join_invite_expiry.sql']) {
     db.exec(readFileSync(new URL(`../../migrations/${file}`, import.meta.url), 'utf8'));
   }
   db.exec('PRAGMA foreign_keys = ON');
@@ -477,6 +477,57 @@ describe('data', () => {
     // 無効なトークンは404（プレビューも参加も）
     expect((await post(app, db, '/api/groups/join/preview', { token: 'bad' })).status).toBe(404);
     expect((await post(app, db, '/api/groups/join', { token: 'bad' }, member)).status).toBe(404);
+  });
+
+  test('参加リンク: 7日で期限切れ、再発行は旧リンクを失効させ、管理者は無効化できる', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const member = await login(app, db, 'code_member');
+    const created = await post(app, db, '/api/groups', { name: 'いつメン' }, host);
+    const { group } = await created.json() as { group: { id: string } };
+
+    const issued = await req(app, db, `/api/groups/${group.id}/invites`, { method: 'POST', headers: { cookie: host } });
+    expect(issued.status).toBe(201);
+    const first = await issued.json() as { token: string; invite: { id: string; expiresAt: string; state: string } };
+    expect(first.invite.state).toBe('active');
+    const ttlMs = Date.parse(first.invite.expiresAt) - Date.now();
+    expect(ttlMs).toBeGreaterThan(6.9 * 24 * 60 * 60 * 1000);
+    expect(ttlMs).toBeLessThanOrEqual(7 * 24 * 60 * 60 * 1000);
+
+    // 期限切れになるとプレビューできず、詳細には期限切れとして出る
+    await db.prepare(`UPDATE invites SET expires_at = ? WHERE id = ?`).bind(new Date(Date.now() - 1000).toISOString(), first.invite.id).run();
+    expect((await post(app, db, '/api/groups/join/preview', { token: first.token })).status).toBe(404);
+    const expiredDetail = await req(app, db, `/api/groups/${group.id}`, { headers: { cookie: host } });
+    expect((await expiredDetail.json() as { joinInvite: { id: string; state: string } }).joinInvite)
+      .toMatchObject({ id: first.invite.id, state: 'expired' });
+
+    // 再発行すると旧リンクは失効し、新リンクだけが使える
+    const reissued = await req(app, db, `/api/groups/${group.id}/invites`, { method: 'POST', headers: { cookie: host } });
+    const second = await reissued.json() as { token: string; invite: { id: string; state: string } };
+    expect(second.token).not.toBe(first.token);
+    expect(second.invite.id).not.toBe(first.invite.id);
+    expect((await post(app, db, '/api/groups/join/preview', { token: first.token })).status).toBe(404);
+    expect((await post(app, db, '/api/groups/join/preview', { token: second.token })).status).toBe(200);
+
+    // 管理者以外は無効化できない
+    await post(app, db, '/api/groups/join', { token: second.token }, member);
+    expect((await req(app, db, `/api/groups/${group.id}/invites/${second.invite.id}/revoke`, { method: 'POST', headers: { cookie: member } })).status).toBe(403);
+
+    // 管理者が無効化するとリンクは404になり、状態は無効化済み。再送しても冪等に無効化済みを返す
+    const revoked = await req(app, db, `/api/groups/${group.id}/invites/${second.invite.id}/revoke`, { method: 'POST', headers: { cookie: host } });
+    expect(revoked.status).toBe(200);
+    expect((await revoked.json() as { invite: { state: string } }).invite.state).toBe('revoked');
+    expect((await post(app, db, '/api/groups/join/preview', { token: second.token })).status).toBe(404);
+    const detail = await req(app, db, `/api/groups/${group.id}`, { headers: { cookie: host } });
+    expect((await detail.json() as { joinInvite: { id: string; state: string } }).joinInvite)
+      .toMatchObject({ id: second.invite.id, state: 'revoked' });
+    expect((await req(app, db, `/api/groups/${group.id}/invites/${second.invite.id}/revoke`, { method: 'POST', headers: { cookie: host } })).status).toBe(200);
+
+    // 無効化後も管理者はいつでも再発行できる
+    const third = await req(app, db, `/api/groups/${group.id}/invites`, { method: 'POST', headers: { cookie: host } });
+    expect(third.status).toBe(201);
+    expect((await post(app, db, '/api/groups/join/preview', { token: (await third.json() as { token: string }).token })).status).toBe(200);
   });
 
   test('予定: 追加・月カレンダー・詳細は所属メンバーのみ（他グループの予定は見えない）', async () => {

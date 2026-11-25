@@ -103,10 +103,17 @@ export async function issueInviteToken(id: string): Promise<string | null> {
 // --- グループ・予定・参加リンク（#24 #25 #26） ----------------------------------
 
 export interface GroupInfo { id: string; name: string; color: string | null; role: 'admin' | 'member' }
+export interface JoinInviteInfo {
+  id: string;
+  createdAt: string;
+  expiresAt: string | null;
+  state: 'active' | 'expired' | 'revoked';
+}
 export interface GroupDetail {
   group: GroupInfo;
   members: { id: string; name: string; role: 'admin' | 'member'; you: boolean }[];
   counts: { events: number; polls: number; members: number };
+  joinInvite: JoinInviteInfo | null;
 }
 export interface CalEvent {
   id: string; date: string; startTime: string | null; title: string;
@@ -150,10 +157,16 @@ export async function fetchGroup(id: string): Promise<{ status: number; detail?:
   return { status: 200, detail: await response.json() as GroupDetail };
 }
 
-export async function issueGroupInvite(id: string): Promise<string | null> {
+export async function issueGroupInvite(id: string): Promise<{ token: string; invite: JoinInviteInfo } | null> {
   const response = await api.api.groups[':id'].invites.$post({ param: { id } });
   if (!response.ok) return null;
-  return (await response.json()).token;
+  return await response.json() as { token: string; invite: JoinInviteInfo };
+}
+
+export async function revokeGroupInvite(groupId: string, inviteId: string): Promise<JoinInviteInfo | null> {
+  const response = await api.api.groups[':id'].invites[':inviteId'].revoke.$post({ param: { id: groupId, inviteId } });
+  if (!response.ok) return null;
+  return (await response.json()).invite as JoinInviteInfo;
 }
 
 export async function previewJoin(token: string): Promise<JoinPreview | null> {

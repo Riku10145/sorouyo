@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useMe, fetchGroups, fetchGroup, createGroup, updateGroup, deleteGroup, issueGroupInvite, type GroupDetail as Detail, type GroupInfo } from '../api';
+import { useMe, fetchGroups, fetchGroup, createGroup, updateGroup, deleteGroup, issueGroupInvite, revokeGroupInvite, toJst, type GroupDetail as Detail, type GroupInfo } from '../api';
 import { Brand, Icon, Dot, toast, GROUP_COLORS, DEFAULT_GROUP_COLOR, type DisplayGroup } from '../design/ui';
 import { AppShell } from './Shell';
 import { LoginCard } from './Auth';
@@ -106,6 +106,9 @@ export function GroupDetail({ id, selectedDate }: { id: string; selectedDate: st
   const [detail, setDetail] = useState<Detail | 'loading' | 'denied'>('loading');
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [inviteConfirming, setInviteConfirming] = useState(false);
+  const [inviteBusy, setInviteBusy] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -135,20 +138,41 @@ export function GroupDetail({ id, selectedDate }: { id: string; selectedDate: st
     </AppShell>;
   }
 
-  const { group, members, counts } = detail;
+  const { group, members, counts, joinInvite } = detail;
   const display: DisplayGroup = group;
   const admin = group.role === 'admin';
 
   const copyInvite = async () => {
-    const token = await issueGroupInvite(group.id);
-    if (!token) { toast('招待リンクを作れませんでした'); return; }
-    const url = `${window.location.origin}/join#${token}`;
+    if (!inviteUrl) return;
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(inviteUrl);
       toast('招待リンクをコピーしました');
     } catch {
-      window.prompt('招待リンクをコピーしてください', url);
+      window.prompt('招待リンクをコピーしてください', inviteUrl);
     }
+  };
+
+  const reissueInvite = async () => {
+    setInviteBusy(true);
+    const issued = await issueGroupInvite(group.id);
+    setInviteBusy(false);
+    if (!issued) { toast('招待リンクを作れませんでした'); return; }
+    setInviteUrl(`${window.location.origin}/join#${issued.token}`);
+    setDetail({ ...detail, joinInvite: issued.invite });
+    setInviteConfirming(false);
+    toast('参加リンクを再発行しました');
+  };
+
+  const revokeInvite = async () => {
+    if (!joinInvite) return;
+    setInviteBusy(true);
+    const revoked = await revokeGroupInvite(group.id, joinInvite.id);
+    setInviteBusy(false);
+    if (!revoked) { toast('参加リンクを無効化できませんでした'); return; }
+    setInviteUrl(null);
+    setDetail({ ...detail, joinInvite: revoked });
+    setInviteConfirming(false);
+    toast('参加リンクを無効化しました');
   };
 
   const remove = async () => {
@@ -159,6 +183,9 @@ export function GroupDetail({ id, selectedDate }: { id: string; selectedDate: st
     toast(`「${group.name}」を削除しました`);
     window.location.href = '/groups';
   };
+
+  const inviteStateText = joinInvite ? { active: '有効', expired: '期限切れ', revoked: '無効化済み' }[joinInvite.state] : null;
+  const inviteExpiry = joinInvite?.expiresAt ? toJst(joinInvite.expiresAt) : null;
 
   return <AppShell active="groups" selectedDate={selectedDate} groups={[display]} subpage>
     <div className="m-only m-back"><a className="text-btn" href="/groups"><Icon name="chevronLeft" size={20} />グループ</a></div>
@@ -190,8 +217,30 @@ export function GroupDetail({ id, selectedDate }: { id: string; selectedDate: st
             <span className="role-badge">{member.role === 'admin' ? '管理者' : 'メンバー'}</span>
           </li>)}
         </ul>
-        {admin && <p className="hint">参加リンクを送ると、リンクを受け取った人がこのグループに参加できます。</p>}
-        {admin && <button type="button" className="soft-btn" onClick={() => void copyInvite()}><Icon name="link" size={18} />参加リンクをコピー</button>}
+        {admin && <>
+          <p className="hint">参加リンクを送ると、リンクを受け取った人がこのグループに参加できます。リンクは7日間有効で、有効なリンクは1グループ1本です。</p>
+          {joinInvite
+            ? <p className="hint">現在のリンク: {inviteStateText}{inviteExpiry && joinInvite.state !== 'revoked' ? `（期限: ${inviteExpiry.date} ${inviteExpiry.time}）` : ''}</p>
+            : <p className="hint">参加リンクはまだ発行されていません。</p>}
+          {inviteUrl && joinInvite?.state === 'active' && <p className="copy-line">
+            <input readOnly value={inviteUrl} onFocus={e => e.target.select()} aria-label="参加リンク" />
+            <button type="button" className="soft-btn" onClick={() => void copyInvite()}><Icon name="copy" size={16} />コピー</button>
+          </p>}
+          {inviteConfirming && joinInvite ? <div className="notice-card" role="alertdialog" aria-label="参加リンクの無効化確認">
+            <p>現在の参加リンクを無効化します。すでに共有したリンクからは参加できなくなります。</p>
+            <div className="about-actions">
+              <button type="button" className="ghost-btn" onClick={() => setInviteConfirming(false)}>キャンセル</button>
+              <button type="button" className="primary-btn danger" disabled={inviteBusy} onClick={() => void revokeInvite()}>{inviteBusy ? '無効化中…' : '無効化する'}</button>
+            </div>
+          </div> : null}
+          <div className="about-actions">
+            {joinInvite?.state === 'active' && !inviteConfirming && <button type="button" className="ghost-btn danger" onClick={() => setInviteConfirming(true)}>無効化</button>}
+            <button type="button" className="soft-btn" disabled={inviteBusy} onClick={() => void reissueInvite()}>
+              <Icon name="link" size={18} />{joinInvite ? '新しいリンクを再発行' : '参加リンクを作成'}
+            </button>
+          </div>
+          {joinInvite?.state === 'active' && <p className="hint">再発行すると現在のリンクは無効になります。発行直後のリンクはこの画面から何度でもコピーできます。</p>}
+        </>}
       </section>
 
       {admin && <section className="card danger-zone">
