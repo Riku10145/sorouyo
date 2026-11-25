@@ -226,6 +226,7 @@ export function GroupDetail({ id, selectedDate }: { id: string; selectedDate: st
             <input readOnly value={inviteUrl} onFocus={e => e.target.select()} aria-label="参加リンク" />
             <button type="button" className="soft-btn" onClick={() => void copyInvite()}><Icon name="copy" size={16} />コピー</button>
           </p>}
+          {!inviteUrl && joinInvite?.state === 'active' && <p className="hint">発行済みのリンクは再表示できません。コピーし直す必要がある場合は再発行してください。</p>}
           {inviteConfirming && joinInvite ? <div className="notice-card" role="alertdialog" aria-label="参加リンクの無効化確認">
             <p>現在の参加リンクを無効化します。すでに共有したリンクからは参加できなくなります。</p>
             <div className="about-actions">
@@ -236,7 +237,7 @@ export function GroupDetail({ id, selectedDate }: { id: string; selectedDate: st
           <div className="about-actions">
             {joinInvite?.state === 'active' && !inviteConfirming && <button type="button" className="ghost-btn danger" onClick={() => setInviteConfirming(true)}>無効化</button>}
             <button type="button" className="soft-btn" disabled={inviteBusy} onClick={() => void reissueInvite()}>
-              <Icon name="link" size={18} />{joinInvite ? '新しいリンクを再発行' : '参加リンクを作成'}
+              <Icon name="link" size={18} />{joinInvite ? 'リンクを再発行' : '参加リンクを作成'}
             </button>
           </div>
           {joinInvite?.state === 'active' && <p className="hint">再発行すると現在のリンクは無効になります。発行直後のリンクはこの画面から何度でもコピーできます。</p>}

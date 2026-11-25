@@ -114,11 +114,11 @@ const findInvite = async (c: C, token: string) => {
   return invite;
 };
 
-const newInvite = async (c: C, purpose: 'answer', ref: { pollId?: string; groupId?: string }, createdBy?: string) => {
+const newAnswerInvite = async (c: C, pollId: string, createdBy?: string) => {
   const token = newToken();
   await c.env.DB.prepare(
-    `INSERT INTO invites (id, purpose, poll_id, group_id, token_hash, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).bind(crypto.randomUUID(), purpose, ref.pollId ?? null, ref.groupId ?? null, await sha256(token), createdBy ?? null, now()).run();
+    `INSERT INTO invites (id, purpose, poll_id, token_hash, created_by, created_at) VALUES (?, 'answer', ?, ?, ?, ?)`
+  ).bind(crypto.randomUUID(), pollId, await sha256(token), createdBy ?? null, now()).run();
   return token;
 };
 
@@ -377,7 +377,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
       group: { ...group, role },
       members: members.map(m => ({ id: m.user_id, name: m.display_name ?? m.email ?? '名無し', role: m.role, you: m.user_id === subject.userId })),
       counts: { events: counts?.events ?? 0, polls: counts?.polls ?? 0, members: members.length },
-      joinInvite: joinInvite ? presentJoinInvite(joinInvite) : null,
+      joinInvite: role === 'admin' && joinInvite ? presentJoinInvite(joinInvite) : null,
     } as const);
   })
 
@@ -475,7 +475,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!(await memberRole(c, poll.group_id, subject.userId))) return c.json({ error: 'forbidden' } as const, 403);
     // 回答リンクはベアラートークン。再発行で既存リンクを失効させると、
     // 主催がコピーするたびに共有済みリンクが死ぬため、旧リンクはそのまま有効にしておく
-    const token = await newInvite(c, 'answer', { pollId: poll.id }, subject.userId);
+    const token = await newAnswerInvite(c, poll.id, subject.userId);
     return c.json({ token } as const, 201);
   })
 
