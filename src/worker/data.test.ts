@@ -421,13 +421,23 @@ describe('data', () => {
     // 編集前の画面が残していても、消えた候補では確定できない
     expect((await post(app, db, `/api/polls/${pollId}/confirm`, { candidateId: removed.id }, host)).status).toBe(400);
     const remaining = poll.candidates[1]!;
-    // 確定APIが候補を照合した後、確定バッチの直前に候補が消える競合を再現する
+    const current = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } });
+    const { poll: latest } = await current.json() as { poll: { editVersion: number } };
+    // 確定APIが候補を照合した後、確定バッチの直前に編集APIの保存が入る競合を再現する
     const originalBatch = db.batch.bind(db);
+    let editStatus = 0;
     db.batch = async (stmts) => {
-      rawDb(db).prepare(`DELETE FROM candidates WHERE id = ?`).run(remaining.id);
+      db.batch = originalBatch; // 内側の編集APIは通常どおりバッチを実行させる
+      editStatus = (await mutate(app, db, 'PATCH', `/api/polls/${pollId}`, {
+        editVersion: latest.editVersion,
+        title: '花見の日程',
+        deadlineAt,
+        candidates: [{ date: '2026-04-05', time: null }],
+      }, host)).status;
       return originalBatch(stmts);
     };
     const raced = await post(app, db, `/api/polls/${pollId}/confirm`, { candidateId: remaining.id }, host);
+    expect(editStatus).toBe(200);
     expect(raced.status).toBe(409);
     const state = rawDb(db).prepare(`SELECT status, confirmed_candidate_id FROM polls WHERE id = ?`).get(pollId) as { status: string; confirmed_candidate_id: string | null };
     expect(state).toEqual({ status: 'open', confirmed_candidate_id: null });
