@@ -36,7 +36,7 @@ test('host can edit poll candidates with vote-loss confirmation', {
     const dialogs = [];
     page.on('dialog', dialog => {
       dialogs.push(dialog.message());
-      void dialog.accept();
+      dialog.accept().catch(() => {});
     });
     await page.route(`${origin}/api/polls/poll-a`, route => {
       if (route.request().method() === 'PATCH') {
@@ -73,7 +73,7 @@ test('host can unconfirm a poll and keep the same edit flow available', {
 }, async () => {
   await boot(async (page, origin) => {
     let unconfirmed = false;
-    page.on('dialog', dialog => void dialog.accept());
+    page.on('dialog', dialog => { dialog.accept().catch(() => {}); });
     await page.route(`${origin}/api/polls/poll-a`, route => route.fulfill({ json: { poll: unconfirmed ? poll : { ...poll, status: 'confirmed', confirmedCandidateId: 'cand-1' } } }));
     await page.route(`${origin}/api/polls/poll-a/unconfirm`, route => {
       unconfirmed = true;
@@ -94,7 +94,7 @@ test('member can edit and delete a normal event from its detail', {
     let patchBody = null;
     let deleted = false;
     const event = { id: 'event-1', date: '2026-11-21', startTime: '19:00', title: '夕食', memo: null, group, sourcePollId: null };
-    page.on('dialog', dialog => void dialog.accept());
+    page.on('dialog', dialog => { dialog.accept().catch(() => {}); });
     await page.route(`${origin}/api/events/event-1`, route => {
       if (route.request().method() === 'PATCH') {
         patchBody = route.request().postDataJSON();
