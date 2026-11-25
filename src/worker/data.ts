@@ -127,10 +127,9 @@ const analyticsDay = (timestamp = Date.now()) =>
 
 /** 匿名の訪問者Cookieだけを使い、表示名・予定名・コメント・リンク秘密部分を残さない。 */
 async function recordAnalytics(
-  c: C, eventType: 'invite_visit' | 'answer_submit', inviteId: string, pollId: string, existingVisitorId?: string,
+  c: C, eventType: 'invite_visit' | 'answer_submit', inviteId: string, pollId: string, visitorId: string,
 ) {
-  // 回答の保存に使ったゲストIDを引き継げるようにする。計測の失敗で本体の回答・閲覧を失敗させない
-  const visitorId = existingVisitorId ?? await ensureGuest(c);
+  // 計測の失敗で本体の回答・閲覧を失敗させない
   const at = now();
   try {
     await c.env.DB.prepare(
@@ -685,7 +684,8 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     }
     const poll = await get<PollRow>(c.env.DB.prepare(`SELECT * FROM polls WHERE id = ?`).bind(invite.poll_id).first());
     if (!poll) return c.json({ error: 'invite_invalid' } as const, 404);
-    await recordAnalytics(c, 'invite_visit', invite.id, poll.id);
+    const visitVisitorId = await ensureGuest(c);
+    await recordAnalytics(c, 'invite_visit', invite.id, poll.id, visitVisitorId);
     const subject = await subjectOf(c);
     let ownAnswer: { name: string; comment: string | null; votes: Record<string, string> } | null = null;
     const key = subject.userId ? `u:${subject.userId}` : subject.guestId ? `g:${subject.guestId}` : undefined;
@@ -777,7 +777,8 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const stillOpen = latest?.status === 'open' && (!latest.deadline_at || new Date(latest.deadline_at).getTime() > Date.now());
     if (!stillOpen) return c.json({ error: 'closed' } as const, 410);
     if (!saved || (votes.length && !savedVotes.length)) return c.json({ error: 'conflict' } as const, 409);
-    await recordAnalytics(c, 'answer_submit', invite.id, poll.id, subject.userId ? undefined : subject.guestId);
+    const answerVisitorId = subject.guestId ?? await ensureGuest(c);
+    await recordAnalytics(c, 'answer_submit', invite.id, poll.id, answerVisitorId);
     return c.json({
       answer: {
         id: saved.id,
