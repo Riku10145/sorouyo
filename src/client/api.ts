@@ -26,7 +26,9 @@ export interface MemberPoll {
   status: 'open' | 'confirmed';
   deadlineAt: string | null;
   confirmedCandidateId: string | null;
+  confirmedEventId: string | null;
   editVersion: number;
+  reopenPending: boolean;
   group: { id: string; name: string; color: string | null };
   creatorId: string;
   hostName: string | null;
@@ -56,7 +58,7 @@ export async function fetchInvite(token: string): Promise<InviteResult> {
   return { status: 'ok', poll: (await response.json()).poll as InvitePoll };
 }
 
-export type AnswerResult = 'ok' | 'closed' | 'invalid' | 'forbidden' | 'error';
+export type AnswerResult = 'ok' | 'closed' | 'invalid' | 'forbidden' | 'conflict' | 'error';
 
 export async function submitAnswer(
   token: string, name: string, comment: string, votes: { candidateId: string; value: Vote }[],
@@ -65,6 +67,7 @@ export async function submitAnswer(
   if (response.status === 410) return 'closed';
   if (response.status === 403) return 'forbidden';
   if (response.status === 404) return 'invalid';
+  if (response.status === 409) return 'conflict';
   return response.ok ? 'ok' : 'error';
 }
 
@@ -90,9 +93,10 @@ export async function fetchMemberPoll(id: string): Promise<{ status: number; pol
   return { status: 200, poll: (await response.json()).poll as MemberPoll };
 }
 
-export async function confirmCandidate(id: string, candidateId: string): Promise<boolean> {
+export async function confirmCandidate(id: string, candidateId: string): Promise<string | null> {
   const response = await api.api.polls[':id'].confirm.$post({ param: { id }, json: { candidateId } });
-  return response.ok;
+  if (!response.ok) return null;
+  return (await response.json()).event?.id ?? null;
 }
 
 export async function issueInviteToken(id: string): Promise<string | null> {
@@ -217,8 +221,8 @@ export async function deletePoll(id: string): Promise<boolean> {
   return response.ok;
 }
 
-export async function unconfirmPoll(id: string, candidateId: string): Promise<boolean> {
-  const response = await api.api.polls[':id'].unconfirm.$post({ param: { id }, json: { candidateId } });
+export async function unconfirmPoll(id: string, eventId: string): Promise<boolean> {
+  const response = await api.api.polls[':id'].unconfirm.$post({ param: { id }, json: { eventId } });
   return response.ok;
 }
 

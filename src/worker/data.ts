@@ -186,7 +186,7 @@ const answerBody = z.object({
   votes: z.array(z.object({ candidateId: z.string().min(1), value: voteSchema })).max(50),
 });
 const confirmBody = z.object({ candidateId: z.string().min(1) });
-const unconfirmBody = z.object({ candidateId: z.string().min(1) });
+const unconfirmBody = z.object({ eventId: z.string().min(1) });
 const eventBody = z.object({
   date: z.iso.date(), time: timeSchema.nullish(), title: z.string().trim().min(1).max(60), memo: z.string().trim().max(500).nullish(),
 });
@@ -468,7 +468,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const polls = await all<PollRow & { group_name: string; group_color: string | null; candidate_count: number; answer_count: number; confirmed_date: string | null; confirmed_time: string | null }>(c.env.DB.prepare(
       `SELECT p.*, g.name AS group_name, g.color AS group_color, cc.date AS confirmed_date, cc.start_time AS confirmed_time,
               (SELECT COUNT(*) FROM candidates cd WHERE cd.poll_id = p.id) AS candidate_count,
-              (SELECT COUNT(*) FROM answers a WHERE a.poll_id = p.id) AS answer_count
+              (SELECT COUNT(DISTINCT v.answer_id) FROM votes v JOIN answers a ON a.id = v.answer_id WHERE a.poll_id = p.id) AS answer_count
        FROM polls p
        JOIN groups g ON g.id = p.group_id
        JOIN memberships m ON m.group_id = p.group_id AND m.user_id = ?
@@ -503,7 +503,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!can(subject, 'viewTally', target) && !can(subject, 'viewPoll', target)) {
       return c.json({ error: 'forbidden' } as const, 403);
     }
-    const [group, candidates, answers, votes, host] = await Promise.all([
+    const [group, candidates, answers, votes, host, confirmedEvent] = await Promise.all([
       get<GroupRow>(c.env.DB.prepare(`SELECT id, name, color FROM groups WHERE id = ?`).bind(poll.group_id).first()),
       all<CandidateRow>(c.env.DB.prepare(`SELECT * FROM candidates WHERE poll_id = ? ORDER BY position`).bind(poll.id).all()),
       all<AnswerRow>(c.env.DB.prepare(`SELECT * FROM answers WHERE poll_id = ? ORDER BY created_at`).bind(poll.id).all()),
@@ -511,6 +511,9 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
         `SELECT v.*, a.respondent_key FROM votes v JOIN answers a ON a.id = v.answer_id WHERE a.poll_id = ?`
       ).bind(poll.id).all()),
       get<{ display_name: string | null }>(c.env.DB.prepare(`SELECT display_name FROM users WHERE id = ?`).bind(poll.creator_id).first()),
+      poll.confirmed_candidate_id
+        ? get<{ id: string }>(c.env.DB.prepare(`SELECT id FROM events WHERE source_poll_id = ?`).bind(poll.id).first())
+        : Promise.resolve(null),
     ]);
     const votesBy = new Map<string, Record<string, string>>();
     for (const v of votes) {
@@ -527,7 +530,9 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
         status: poll.status,
         deadlineAt: poll.deadline_at,
         confirmedCandidateId: poll.confirmed_candidate_id,
+        confirmedEventId: confirmedEvent?.id ?? null,
         editVersion: poll.edit_version,
+        reopenPending: poll.reopen_pending === 1,
         group: group!,
         creatorId: poll.creator_id,
         hostName: host?.display_name ?? null,
@@ -573,6 +578,8 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const removed = current.filter(row => !kept.has(row.id)).map(row => row.id);
     const deadlineAt = body.data.deadlineAt ? new Date(body.data.deadlineAt).toISOString() : null;
     const clearsReopen = deadlineAt !== null && new Date(deadlineAt).getTime() > Date.now();
+    // 確定取消からの再調整では、未来の締切を保存するまで受付を再開しない。空欄や過去時刻のまま成功にはしない
+    if (poll.reopen_pending && !clearsReopen) return c.json({ error: 'reopen_deadline_required' } as const, 400);
     const version = body.data.editVersion;
     const editGuard = `EXISTS (SELECT 1 FROM polls WHERE id = ? AND status = 'open' AND edit_version = ?)`;
     const stmts = [
@@ -674,7 +681,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     return c.json({ poll: { id: poll.id, status: 'confirmed', confirmedCandidateId: candidateId }, event: event ?? null } as const, 200);
   })
 
-  // 確定の取り消し（作成者のみ）。古い確定画面からの取消が新しい確定を消さないよう、対象候補を条件にする
+  // 確定の取り消し（作成者のみ）。古い確定画面からの取消が新しい確定を消さないよう、対象の予定IDを条件にする
   .post('/polls/:id/unconfirm', json(unconfirmBody), async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const subject = await subjectOf(c);
@@ -683,17 +690,18 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!poll) return c.json({ error: 'not_found' } as const, 404);
     const target = await pollTarget(c, poll, false);
     if (!can(subject, 'confirmPoll', target)) return c.json({ error: 'forbidden' } as const, 403);
-    const { candidateId } = c.req.valid('json');
+    const { eventId } = c.req.valid('json');
     const results = await c.env.DB.batch([
       c.env.DB.prepare(
         `UPDATE polls SET status = 'open', confirmed_candidate_id = NULL, deadline_at = ?, reopen_pending = 1, edit_version = edit_version + 1
-         WHERE id = ? AND status = 'confirmed' AND confirmed_candidate_id = ?`
-      ).bind(now(), poll.id, candidateId),
+         WHERE id = ? AND status = 'confirmed'
+           AND EXISTS (SELECT 1 FROM events WHERE source_poll_id = ? AND id = ?)`
+      ).bind(now(), poll.id, poll.id, eventId),
       c.env.DB.prepare(
-        `DELETE FROM events WHERE source_poll_id = ? AND EXISTS (
+        `DELETE FROM events WHERE source_poll_id = ? AND id = ? AND EXISTS (
            SELECT 1 FROM polls WHERE id = ? AND status = 'open' AND confirmed_candidate_id IS NULL
          )`
-      ).bind(poll.id, poll.id),
+      ).bind(poll.id, eventId, poll.id),
     ]);
     if (!results[0]!.meta.changes) {
       const latest = await get<PollRow>(c.env.DB.prepare(`SELECT * FROM polls WHERE id = ?`).bind(poll.id).first());

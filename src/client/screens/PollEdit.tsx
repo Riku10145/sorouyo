@@ -53,8 +53,8 @@ export function PollEdit({ id, selectedDate }: { id: string; selectedDate: strin
     </AppShell>;
   }
 
-  const reopen = new URLSearchParams(window.location.search).get('reopen') === '1';
   const poll = result.poll;
+  const reopen = new URLSearchParams(window.location.search).get('reopen') === '1' || poll.reopenPending;
   const owner = me.user.id === poll.creatorId;
   const group = { id: poll.group.id, name: poll.group.name, color: poll.group.color };
   const original = new Map(poll.candidates.map(c => [c.id, c]));
@@ -119,7 +119,7 @@ export function PollEdit({ id, selectedDate }: { id: string; selectedDate: strin
     }).catch(() => 0);
     setBusy(false);
     if (status !== 200) {
-      setError(status === 409 ? '編集中に新しい回答または別の変更が入りました。画面を開き直して内容を確認してください。' : '保存できませんでした。確定済みでないか確認して、時間をおいて再度お試しください。');
+      setError(status === 409 ? '編集中に新しい回答または別の変更が入りました。画面を開き直して内容を確認してください。' : status === 400 ? '再調整を始めるには未来の回答締切を設定してください。' : '保存できませんでした。確定済みでないか確認して、時間をおいて再度お試しください。');
       return;
     }
     toast('日程調整を保存しました');

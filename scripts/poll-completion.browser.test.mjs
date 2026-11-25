@@ -37,7 +37,7 @@ test('host answer state is explicit and the confirm completion screen does not l
       if (request.method() === 'POST' && action === 'confirm') {
         poll.status = 'confirmed';
         poll.confirmedCandidateId = 'cand-1';
-        return route.fulfill({ json: { poll: { id: poll.id, status: 'confirmed', confirmedCandidateId: 'cand-1' } } });
+        return route.fulfill({ json: { poll: { id: poll.id, status: 'confirmed', confirmedCandidateId: 'cand-1' }, event: { id: 'event-1' } } });
       }
       return route.fulfill({ status: 500, json: { error: 'unexpected' } });
     });
@@ -125,7 +125,7 @@ test('desktop completion sidebar shows the confirmed event instead of an empty d
       if (request.method() === 'POST' && action === 'confirm') {
         poll.status = 'confirmed';
         poll.confirmedCandidateId = 'cand-1';
-        return route.fulfill({ json: { poll: { id: poll.id, status: 'confirmed', confirmedCandidateId: 'cand-1' } } });
+        return route.fulfill({ json: { poll: { id: poll.id, status: 'confirmed', confirmedCandidateId: 'cand-1' }, event: { id: 'event-1' } } });
       }
       return route.fulfill({ status: 500, json: { error: 'unexpected' } });
     });

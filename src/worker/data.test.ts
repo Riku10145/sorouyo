@@ -20,7 +20,7 @@ import { buildDataRoutes, type DataEnv } from './data';
 function makeDb(): D1Database {
   const db = new DatabaseSync(':memory:');
   // 新しい migration を足したらここにも列挙する
-  for (const file of ['0001_init.sql', '0002_invite_creator.sql', '0003_event_memo.sql']) {
+  for (const file of ['0001_init.sql', '0002_invite_creator.sql', '0003_event_memo.sql', '0004_poll_edit_state.sql']) {
     db.exec(readFileSync(new URL(`../../migrations/${file}`, import.meta.url), 'utf8'));
   }
   db.exec('PRAGMA foreign_keys = ON');
@@ -346,12 +346,12 @@ describe('data', () => {
     expect(resend.status).toBe(410);
 
     // 古い確定画面の取消は別候補への再確定を消せない
-    expect((await post(app, db, `/api/polls/${pollId}/unconfirm`, { candidateId: poll.candidates[1]!.id }, host)).status).toBe(409);
+    expect((await post(app, db, `/api/polls/${pollId}/unconfirm`, { eventId: 'wrong-event' }, host)).status).toBe(409);
     const calStill = await req(app, db, '/api/calendar?month=2026-04', { headers: { cookie: member } });
     expect((await calStill.json() as { events: { id: string }[] }).events.map(e => e.id)).toEqual([event.id]);
 
     // 取消すると予定が消え、同じ回答リンクは残った候補への回答を保ったまま受付に戻る
-    expect((await post(app, db, `/api/polls/${pollId}/unconfirm`, { candidateId: chosen.id }, host)).status).toBe(200);
+    expect((await post(app, db, `/api/polls/${pollId}/unconfirm`, { eventId: event.id }, host)).status).toBe(200);
     const cal2 = await req(app, db, '/api/calendar?month=2026-04', { headers: { cookie: member } });
     expect((await cal2.json() as { events: unknown[] }).events).toHaveLength(0);
     const inviteAfter = await post(app, db, '/api/invite', { token }, answerer);
@@ -384,9 +384,14 @@ describe('data', () => {
     const { events: currentEvents } = await cal3.json() as { events: { id: string }[] };
     expect(currentEvents.map(e => e.id)).toEqual([nextEvent.id]);
 
+    // 前の確定画面が持つ古い予定IDでは、再確定済みの予定を取り消せない
+    expect((await post(app, db, `/api/polls/${pollId}/unconfirm`, { eventId: event.id }, host)).status).toBe(409);
+    const calAfterStaleUnconfirm = await req(app, db, '/api/calendar?month=2026-04', { headers: { cookie: member } });
+    expect((await calAfterStaleUnconfirm.json() as { events: { id: string }[] }).events.map(e => e.id)).toEqual([nextEvent.id]);
+
     // 確定済みは削除できない。取消後は削除でき、リンクは無効案内になる
     expect((await mutate(app, db, 'DELETE', `/api/polls/${pollId}`, {}, host)).status).toBe(409);
-    await post(app, db, `/api/polls/${pollId}/unconfirm`, { candidateId: otherCandidate.id }, host);
+    await post(app, db, `/api/polls/${pollId}/unconfirm`, { eventId: nextEvent.id }, host);
     expect((await mutate(app, db, 'DELETE', `/api/polls/${pollId}`, {}, host)).status).toBe(204);
     expect((await post(app, db, '/api/invite', { token }, answerer)).status).toBe(404);
   });

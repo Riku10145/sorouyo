@@ -99,6 +99,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
       votes: remote.candidates.map(c => a.votes[c.id] ?? null),
     })),
     confirmedIndex: confirmedIndex !== null && confirmedIndex >= 0 ? confirmedIndex : null,
+    confirmedEventId: remote.confirmedEventId,
   };
   const link = async () => {
     issuedLink.current ??= issueInviteToken(remote.id).then(token =>
@@ -116,7 +117,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
     canViewTally={me?.user.id === remote.creatorId}
     viewerName={viewerName}
     onConfirm={index => confirmCandidate(remote.id, remote.candidates[index]!.id)}
-    onUnconfirm={candidateId => unconfirmPoll(remote.id, candidateId)}
+    onUnconfirm={eventId => unconfirmPoll(remote.id, eventId)}
     onCopyLink={link}
     onAnswerLink={async () => { const url = await link(); window.location.href = url; }} />;
 }
@@ -129,14 +130,15 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   canViewTally?: boolean;
   /** 回答前の自分を一覧に出すためのログイン中の表示名 */
   viewerName?: string;
-  onConfirm?: (index: number) => Promise<boolean>;
-  onUnconfirm?: (candidateId: string) => Promise<boolean>;
+  onConfirm?: (index: number) => Promise<string | null>;
+  onUnconfirm?: (eventId: string) => Promise<boolean>;
   onCopyLink?: () => Promise<string>;
   onAnswerLink?: () => void;
 }) {
   const best = bestCandidate(poll);
   const [chosen, setChosen] = useState(best);
   const [confirmed, setConfirmed] = useState<number | null>(poll.confirmedIndex ?? null);
+  const [confirmedEventId, setConfirmedEventId] = useState<string | null>(poll.confirmedEventId ?? null);
   const [completion, setCompletion] = useState<{ pollKey: string; index: number } | null>(null);
   const chosenCard = useRef<HTMLElement>(null);
   const picked = useRef(false);
@@ -184,12 +186,17 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   const confirm = async () => {
     if (confirmed !== null || confirming.current) return; // 確定後・確定処理中の再確定はさせない
     confirming.current = true;
+    let eventId: string | null = null;
     let done = true;
-    try { done = onConfirm ? await onConfirm(chosen) : true; }
+    try {
+      eventId = onConfirm ? await onConfirm(chosen) : null;
+      done = onConfirm ? eventId !== null : true;
+    }
     catch { done = false; } // ネットワークエラー等でも失敗トーストに倒す
     finally { confirming.current = false; }
     if (done) {
       setConfirmed(chosen);
+      setConfirmedEventId(eventId);
       setCompletion({ pollKey, index: chosen });
     } else toast('確定できませんでした。すでに別の日に確定している可能性があります');
   };
@@ -199,12 +206,12 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
     if (!window.confirm('確定を取り消しますか？カレンダーの予定は消え、編集した予定名・メモは再確定時の新しい予定に引き継がれません。回答は保持されたまま再調整できます。')) return;
     unconfirming.current = true;
     let ok = true;
-    const candidateId = poll.candidates[confirmed]?.id;
-    try { ok = onUnconfirm && candidateId ? await onUnconfirm(candidateId) : true; }
+    try { ok = onUnconfirm && confirmedEventId ? await onUnconfirm(confirmedEventId) : !onUnconfirm; }
     catch { ok = false; }
     finally { unconfirming.current = false; }
     if (!ok) { toast('確定を取り消せませんでした'); return; }
     setConfirmed(null);
+    setConfirmedEventId(null);
     toast('確定を取り消しました。新しい回答締切を設定してください');
     if (poll.id) window.location.href = `/polls/${poll.id}/edit?reopen=1`;
   };

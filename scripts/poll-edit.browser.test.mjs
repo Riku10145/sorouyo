@@ -9,7 +9,8 @@ const candidates = [
   { id: 'cand-2', date: '2026-11-22', startTime: '12:00' },
 ];
 const poll = {
-  id: 'poll-a', title: '餃子の会', status: 'open', deadlineAt: null, confirmedCandidateId: null,
+  id: 'poll-a', title: '餃子の会', status: 'open', deadlineAt: null, confirmedCandidateId: null, confirmedEventId: null,
+  editVersion: 7, reopenPending: false,
   group, creatorId: user.id, hostName: '山田 太郎', candidates,
   answers: [{ id: 'answer-hana', name: 'はな', comment: null, own: false, votes: { 'cand-1': 'yes', 'cand-2': 'no' }, createdAt: '2026-11-01T00:00:00Z' }],
 };
@@ -63,6 +64,7 @@ test('host can edit poll candidates with vote-loss confirmation', {
     assert.equal(dialogs.length, 2);
     assert.match(dialogs[0], /1件の票/);
     assert.match(dialogs[1], /合計1件の票/);
+    assert.equal(patchBody.editVersion, 7);
     assert.equal(patchBody.title, '餃子の会（再調整）');
     assert.equal(patchBody.candidates.length, 2);
     assert.equal(patchBody.candidates[0].id, 'cand-1');
@@ -77,9 +79,11 @@ test('host can unconfirm a poll and keep the same edit flow available', {
 }, async () => {
   await boot(async (page, origin) => {
     let unconfirmed = false;
+    let unconfirmBody = null;
     await page.addInitScript(() => { window.confirm = () => true; });
-    await page.route(`${origin}/api/polls/poll-a`, route => route.fulfill({ json: { poll: unconfirmed ? poll : { ...poll, status: 'confirmed', confirmedCandidateId: 'cand-1' } } }));
+    await page.route(`${origin}/api/polls/poll-a`, route => route.fulfill({ json: { poll: unconfirmed ? poll : { ...poll, status: 'confirmed', confirmedCandidateId: 'cand-1', confirmedEventId: 'event-1' } } }));
     await page.route(`${origin}/api/polls/poll-a/unconfirm`, route => {
+      unconfirmBody = route.request().postDataJSON();
       unconfirmed = true;
       return route.fulfill({ json: { poll: { id: 'poll-a', status: 'open' } } });
     });
@@ -87,6 +91,7 @@ test('host can unconfirm a poll and keep the same edit flow available', {
     await page.getByRole('button', { name: '確定を取り消して再調整' }).tap();
     await page.getByRole('heading', { name: '日程調整を編集', level: 1 }).waitFor();
     assert.equal(unconfirmed, true);
+    assert.equal(unconfirmBody.eventId, 'event-1');
     await page.getByText('再調整を始めるには新しい回答締切を設定してください').waitFor();
   });
 });
