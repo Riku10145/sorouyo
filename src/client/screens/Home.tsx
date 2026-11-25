@@ -30,8 +30,8 @@ function Pill({ event, long = false }: { event: ViewEvent; long?: boolean }) {
 
 function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry, onMonthChange, onAdd, dayLink }: {
   today: string; initialDate: string; groups: DisplayGroup[]; events: ViewEvent[];
-  monthStatus?: MonthLoad['status'];
-  onRetry?: () => void;
+  monthStatus?: (month: string) => MonthLoad['status'];
+  onRetry?: (month: string) => void;
   onMonthChange?: (month: string) => void;
   onAdd?: (date: string, trigger: HTMLButtonElement) => void;
   dayLink?: (event: ViewEvent) => string | null;
@@ -45,10 +45,12 @@ function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry
   const [year, monthNumber] = month.split('-').map(Number) as [number, number];
   const Art = monthArt[monthNumber - 1]!;
   const dayEvents = eventsOn(selected);
-  const dayNotice = monthStatus === 'error' ? <div className="day-load-error">
+  const selectedMonth = selected.slice(0, 7);
+  const selectedMonthStatus = monthStatus?.(selectedMonth);
+  const dayNotice = selectedMonthStatus === 'error' ? <div className="day-load-error">
     <div className="form-error" role="alert">予定を読み込めませんでした。</div>
-    {onRetry && <button type="button" className="ghost-btn" onClick={onRetry}>再試行</button>}
-  </div> : monthStatus === 'loading' ? <p className="empty" role="status">予定を読み込み中…</p> : null;
+    {onRetry && <button type="button" className="ghost-btn" onClick={() => onRetry(selectedMonth)}>再試行</button>}
+  </div> : selectedMonthStatus === 'loading' ? <p className="empty" role="status">予定を読み込み中…</p> : null;
   const toggle = (group: string) => setVisible(current => {
     const next = new Set(current);
     if (next.has(group)) next.delete(group); else next.add(group);
@@ -57,12 +59,20 @@ function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry
   const changeMonth = (next: string) => { setMonth(next); onMonthChange?.(next); };
   const go = (date: string) => { setSelected(date); changeMonth(date.slice(0, 7)); };
   const grid = useRef<HTMLDivElement>(null);
+  const dayPanel = useRef<HTMLElement>(null);
   const restoreCellFocus = useRef(false);
+  const [panelScrollRequest, setPanelScrollRequest] = useState(0);
   useLayoutEffect(() => {
     if (!restoreCellFocus.current) return;
     restoreCellFocus.current = false;
     grid.current?.querySelector<HTMLElement>(`[data-date="${selected}"]`)?.focus();
   }, [selected]);
+  useLayoutEffect(() => {
+    if (!panelScrollRequest || window.innerWidth >= 1024) return;
+    // 状態更新後のDOMへ移す。スマホでは選択日の一覧が画面外にありうるため、1タップで全文まで読めるようにする
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    dayPanel.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+  }, [panelScrollRequest]);
   const onGridKey = (event: KeyboardEvent<HTMLDivElement>) => {
     const step = ({ ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 } as Record<string, number>)[event.key];
     if (!step) return;
@@ -74,8 +84,9 @@ function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry
     go(dateKey(next));
   };
   const onCellClick = (date: string) => {
-    if (!date.startsWith(month)) restoreCellFocus.current = true;
-    go(date);
+    // タップでは表示中の月を保つ。隣月のセルもその月の一部として選び、内容は下の一覧で確認させる
+    setSelected(date);
+    if (window.innerWidth < 1024) setPanelScrollRequest(request => request + 1);
   };
   const focusable = cells.includes(selected) ? selected : cells.find(date => date.startsWith(month));
   const add = (trigger: HTMLButtonElement) => onAdd ? onAdd(selected, trigger) : notReady('予定の追加');
@@ -129,7 +140,7 @@ function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry
       </div>
     </section>
 
-    <section className="day-panel" aria-labelledby="day-heading">
+    <section ref={dayPanel} className="day-panel" aria-labelledby="day-heading">
       <div className="day-head">
         <h2 id="day-heading">{dateLabel(selected)}{!dayNotice && <span className="count">{dayEvents.length}件</span>}</h2>
         <button type="button" className="primary-btn" onClick={e => add(e.currentTarget)}><Icon name="plus" size={18} />予定を追加</button>
@@ -285,8 +296,8 @@ function RemoteHome({ today, initialDate }: { today: string; initialDate: string
       today={today} initialDate={initialDate}
       groups={displayGroups}
       events={[...months.values()].flatMap(load => load.status === 'loaded' ? load.events : [])}
-      monthStatus={months.get(viewMonth)?.status ?? 'loading'}
-      onRetry={() => void loadMonth(viewMonth, true)}
+      monthStatus={month => months.get(month)?.status ?? 'loading'}
+      onRetry={month => void loadMonth(month, true)}
       onMonthChange={month => {
         setViewMonth(month);
         void loadMonth(shiftedMonth(month, -1));
@@ -300,7 +311,7 @@ function RemoteHome({ today, initialDate }: { today: string; initialDate: string
       dayLink={event => event.id ? `/events/${event.id}` : null}
     />
     {addDate && <AddEventSheet groups={groups} date={addDate} onClose={() => setAddDate(null)} onCreated={() => {
-      void loadMonth(viewMonth, true);
+      void loadMonth(addDate.slice(0, 7), true);
       setAddDate(null);
     }} />}
   </>;

@@ -36,8 +36,8 @@ function Screen() {
   const pollId = pathname.match(/^\/polls\/([\w-]+)\/?$/)?.[1];
   if (pollId) {
     const poll = findPoll(pollId);
-    if (poll) return <PollStatus poll={poll} selectedDate={validDate(requested) ? requested : SAMPLE_SELECTED_DATE} />;
-    return <RemotePollStatus id={pollId} selectedDate={selected} />;
+    if (poll) return <PollStatus key={pollId} poll={poll} selectedDate={validDate(requested) ? requested : SAMPLE_SELECTED_DATE} />;
+    return <RemotePollStatus key={pollId} id={pollId} selectedDate={selected} />;
   }
   return <Home today={today} initialDate={selected} />;
 }

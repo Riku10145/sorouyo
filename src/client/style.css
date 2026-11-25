@@ -113,16 +113,17 @@ button:disabled { cursor: default; }
 .more { font-size: 10px; font-weight: 500; color: var(--color-ink); line-height: 12px; }
 
 /* 選んだ日の予定 */
-.day-panel { margin-top: 10px; padding: 20px 16px; background: var(--color-surface); }
+.day-panel { margin-top: 10px; padding: 20px 16px; background: var(--color-surface); scroll-margin-top: 8px; }
 .day-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 8px; }
 .day-head h2 { font-size: 18px; font-weight: 750; color: var(--color-text); font-feature-settings: "palt"; }
 .count { margin-left: 8px; white-space: nowrap; font-size: 12px; font-weight: 400; color: var(--color-muted); }
 .day-item { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--color-line-soft); }
-.day-time { width: 48px; font-size: 17px; font-weight: 700; color: var(--color-ink); }
-.day-bar { width: 3px; height: 32px; border-radius: 2px; background: var(--g); }
+.day-time { flex: none; width: 48px; font-size: 17px; font-weight: 700; color: var(--color-ink); }
+.day-bar { flex: none; width: 3px; height: 32px; border-radius: 2px; background: var(--g); }
 .day-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.day-text strong { font-size: 16px; color: var(--color-text); }
-.day-text span { font-size: 12px; font-weight: 500; color: var(--color-muted); }
+.day-text strong { font-size: 16px; color: var(--color-text); line-height: 1.45; overflow-wrap: anywhere; }
+.day-text span { font-size: 12px; font-weight: 500; color: var(--color-muted); overflow-wrap: anywhere; }
+.day-item > svg { flex: none; }
 .stamp { flex: none; }
 .empty { padding: 16px 0; color: var(--color-muted); font-size: 14px; }
 .day-load-error { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
@@ -176,6 +177,21 @@ button:disabled { cursor: default; }
 /* 確定バーの上に出す操作に付ける。要素の種類（a/button）に依存させない */
 .clears-confirm-bar { scroll-margin-bottom: var(--confirm-bar-space); }
 .confirm-bar { position: sticky; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(to bottom, rgba(251, 251, 247, 0), var(--color-bg) 30%); }
+
+/* 日程確定の完了画面（Paper「日程確定・カレンダー登録完了」） */
+.confirm-complete { display: flex; flex-direction: column; align-items: center; gap: 18px; min-height: calc(100dvh - 52px); padding: 32px 20px calc(20px + env(safe-area-inset-bottom, 0px)); }
+.confirm-complete > * { width: min(100%, 335px); }
+.confirm-complete h1 { font-family: var(--font-serif); font-size: 26px; font-weight: 800; line-height: 1.35; color: var(--color-ink); }
+.confirm-complete h1:focus { outline: none; }
+.confirm-event { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 22px; border-radius: var(--radius-lg); background: var(--color-hero); color: var(--color-ink); text-align: center; }
+.confirm-event-icon { display: grid; place-items: center; width: 82px; height: 70px; margin-bottom: 4px; color: var(--color-ink); }
+.confirm-event h2 { font-family: var(--font-serif); font-size: 24px; font-weight: 800; overflow-wrap: anywhere; }
+.confirm-event p { font-size: 15px; font-weight: 700; }
+.calendar-added { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--radius-md); background: var(--color-primary-soft); color: var(--color-ink); text-align: left; }
+.calendar-added svg { flex: none; }
+.calendar-added p { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--color-muted); }
+.calendar-added strong { font-size: 13px; color: var(--color-ink); }
+.confirm-calendar-link { margin-top: auto; }
 
 /* 招待者（ゲスト） */
 .guest { max-width: 560px; margin: 0 auto; min-height: 100dvh; padding-bottom: 24px; background: var(--color-bg); }
