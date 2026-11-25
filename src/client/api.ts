@@ -31,6 +31,8 @@ export interface MemberPoll {
   hostName: string | null;
   candidates: { id: string; date: string; startTime: string | null }[];
   answers: { id: string; name: string; comment: string | null; own: boolean; votes: Record<string, Vote>; createdAt: string }[];
+  /** 作成者にだけ返る。催促対象の分類（#7）に使う */
+  members?: { id: string; name: string; answered: boolean }[];
 }
 
 export interface PollSummary {
@@ -188,6 +190,20 @@ export async function fetchEvent(id: string): Promise<{ status: number; event?: 
   const response = await api.api.events[':id'].$get({ param: { id } });
   if (!response.ok) return { status: response.status };
   return { status: 200, event: (await response.json()).event as CalEvent };
+}
+
+/** #32 予定通知の設定 */
+export interface NotificationSettings { enabled: boolean; time: string }
+
+export async function fetchNotificationSettings(): Promise<NotificationSettings | null> {
+  const response = await api.api.settings.notifications.$get();
+  if (!response.ok) return null;
+  return await response.json() as NotificationSettings;
+}
+
+export async function saveNotificationSettings(settings: NotificationSettings): Promise<boolean> {
+  const response = await api.api.settings.notifications.$put({ json: settings });
+  return response.ok;
 }
 
 /** UTCのISOを画面表示用の日本時間に変換する。 */
