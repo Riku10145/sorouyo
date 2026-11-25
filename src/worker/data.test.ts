@@ -17,10 +17,11 @@ import { buildDataRoutes, type DataEnv } from './data';
 
 // --- D1 を node:sqlite でシムする（migrations/*.sql をそのまま適用） ---
 
-function makeDb(): D1Database {
+function makeDb(includeAnalytics = true): D1Database {
   const db = new DatabaseSync(':memory:');
   // 新しい migration を足したらここにも列挙する
-  for (const file of ['0001_init.sql', '0002_invite_creator.sql', '0004_analytics_events.sql']) {
+  const migrations = ['0001_init.sql', '0002_invite_creator.sql', ...(includeAnalytics ? ['0004_analytics_events.sql'] : [])];
+  for (const file of migrations) {
     db.exec(readFileSync(new URL(`../../migrations/${file}`, import.meta.url), 'utf8'));
   }
   db.exec('PRAGMA foreign_keys = ON');
@@ -629,6 +630,36 @@ describe('data', () => {
     expect(rows.results).toHaveLength(2);
     const serialized = JSON.stringify(rows.results);
     for (const secret of ['秘密の名前', '秘密のメモ', '花見', token]) expect(serialized.includes(secret)).toBe(false);
+  });
+
+  test('計測: Cookieなしの回答でも発行Cookieと回答者が一致し、計測表未適用でも招待は開ける', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const { token } = await setupPoll(app, db, host);
+    const opened = await post(app, db, '/api/invite', { token });
+    const { poll } = await opened.json() as { poll: { candidates: { id: string }[] } };
+
+    // 有効CookieなしのAPI送信では、回答保存に使ったIDそのものをブラウザへ返す
+    const answer = await post(app, db, '/api/invite/answer', {
+      token, name: '直接送信', votes: [{ candidateId: poll.candidates[0]!.id, value: 'yes' }],
+    });
+    expect(answer.status).toBe(200);
+    const issued = answer.headers.getSetCookie().find(v => v.startsWith(`${GUEST_COOKIE}=`))!.split(';')[0]!;
+    const reopened = await post(app, db, '/api/invite', { token }, issued);
+    expect(((await reopened.json() as { poll: { ownAnswer: { name: string } | null } }).poll.ownAnswer)?.name).toBe('直接送信');
+
+    // 新しい計測テーブルの適用が遅れていても、既存の招待表示と回答は止めない
+    const oldDb = makeDb(false);
+    const oldApp = testApp(oldDb);
+    const oldHost = await login(oldApp, oldDb, 'code_host');
+    const oldPoll = await setupPoll(oldApp, oldDb, oldHost);
+    expect((await post(oldApp, oldDb, '/api/invite', { token: oldPoll.token })).status).toBe(200);
+    const oldInvite = await post(oldApp, oldDb, '/api/invite', { token: oldPoll.token });
+    const oldCandidate = (await oldInvite.json() as { poll: { candidates: { id: string }[] } }).poll.candidates[0]!.id;
+    expect((await post(oldApp, oldDb, '/api/invite/answer', {
+      token: oldPoll.token, name: '互換確認', votes: [{ candidateId: oldCandidate, value: 'yes' }],
+    })).status).toBe(200);
   });
 
 });

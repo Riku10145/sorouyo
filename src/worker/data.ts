@@ -126,17 +126,24 @@ const analyticsDay = (timestamp = Date.now()) =>
   new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date(timestamp));
 
 /** 匿名の訪問者Cookieだけを使い、表示名・予定名・コメント・リンク秘密部分を残さない。 */
-async function recordAnalytics(c: C, eventType: 'invite_visit' | 'answer_submit', inviteId: string, pollId: string) {
-  const visitorId = await ensureGuest(c);
+async function recordAnalytics(
+  c: C, eventType: 'invite_visit' | 'answer_submit', inviteId: string, pollId: string, existingVisitorId?: string,
+) {
+  // 回答の保存に使ったゲストIDを引き継げるようにする。計測の失敗で本体の回答・閲覧を失敗させない
+  const visitorId = existingVisitorId ?? await ensureGuest(c);
   const at = now();
-  await c.env.DB.prepare(
-    `INSERT OR IGNORE INTO analytics_events
-     (id, event_type, visitor_id, invite_id, poll_id, occurred_on, created_at, dedupe_key)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(
-    crypto.randomUUID(), eventType, visitorId, inviteId, pollId,
-    analyticsDay(), at, `${eventType}:${inviteId}:${visitorId}`,
-  ).run();
+  try {
+    await c.env.DB.prepare(
+      `INSERT OR IGNORE INTO analytics_events
+       (id, event_type, visitor_id, invite_id, poll_id, occurred_on, created_at, dedupe_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      crypto.randomUUID(), eventType, visitorId, inviteId, pollId,
+      analyticsDay(), at, `${eventType}:${inviteId}:${visitorId}`,
+    ).run();
+  } catch {
+    console.warn('analytics event write failed');
+  }
 }
 
 // --- 回答の書き込み ----------------------------------------------------------
@@ -770,7 +777,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const stillOpen = latest?.status === 'open' && (!latest.deadline_at || new Date(latest.deadline_at).getTime() > Date.now());
     if (!stillOpen) return c.json({ error: 'closed' } as const, 410);
     if (!saved || (votes.length && !savedVotes.length)) return c.json({ error: 'conflict' } as const, 409);
-    await recordAnalytics(c, 'answer_submit', invite.id, poll.id);
+    await recordAnalytics(c, 'answer_submit', invite.id, poll.id, subject.userId ? undefined : subject.guestId);
     return c.json({
       answer: {
         id: saved.id,
