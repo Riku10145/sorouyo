@@ -133,6 +133,13 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   const chosenCard = useRef<HTMLElement>(null);
   const picked = useRef(false);
   useEffect(() => { if (picked.current) { picked.current = false; chosenCard.current?.focus(); } }, [chosen]);
+  useEffect(() => {
+    const clearRestoredCompletion = (event: PageTransitionEvent) => {
+      if (event.persisted) setCompletion(null);
+    };
+    window.addEventListener('pageshow', clearRestoredCompletion);
+    return () => window.removeEventListener('pageshow', clearRestoredCompletion);
+  }, []);
   const choose = (index: number) => { picked.current = true; setChosen(index); };
   const savedYou = poll.answers.find(answer => answer.own ?? answer.name === SAMPLE_ORGANIZER);
   // 実データでは未送信の回答行が無い。主催者/メンバーも回答対象なので、未回答の自分を一覧に補う

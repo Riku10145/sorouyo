@@ -24,6 +24,8 @@ test('host answer state is explicit and the confirm completion screen does not l
     const pollB = { ...pollA, id: 'poll-b', title: '別の集まり', answers: [] };
     const bodyFor = poll => ({ poll: JSON.parse(JSON.stringify({ ...poll, group })) });
     await page.route(`${origin}/api/auth/me`, route => route.fulfill({ json: { user } }));
+    await page.route(`${origin}/api/groups`, route => route.fulfill({ json: { groups: [group] } }));
+    await page.route(`${origin}/api/calendar?month=*`, route => route.fulfill({ json: { events: [] } }));
     await page.route(/\/api\/polls\/.*/, async route => {
       const request = route.request();
       const parts = new URL(request.url()).pathname.split('/');
@@ -60,7 +62,11 @@ test('host answer state is explicit and the confirm completion screen does not l
     await complete.waitFor();
     assert.equal(await complete.evaluate(heading => heading === document.activeElement), true, 'the completion heading must receive focus');
     await page.getByText('いつメンのカレンダーに追加しました').waitFor();
-    await page.getByRole('link', { name: 'カレンダーで見る' }).waitFor();
+    await page.getByRole('link', { name: 'カレンダーで見る' }).tap();
+    await page.getByRole('grid', { name: '2026年11月のカレンダー' }).waitFor();
+    await page.goBack();
+    await page.getByRole('heading', { name: '餃子の会', level: 1 }).waitFor();
+    assert.equal(await page.locator('.confirm-complete').count(), 0, 'browser back must not restore the transient completion screen');
 
     await page.goto(`${origin}/polls/poll-b`);
     await page.getByRole('heading', { name: '別の集まり', level: 1 }).waitFor();
