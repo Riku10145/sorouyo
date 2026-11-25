@@ -419,7 +419,7 @@ fieldset.field legend { padding: 0; font-size: 13px; font-weight: 700; color: va
 .reminder-card .soft-btn { margin-top: 12px; }
 .reminder-list { display: flex; flex-direction: column; gap: 2px; }
 .reminder-row { display: flex; align-items: center; gap: 10px; min-height: 40px; font-size: 15px; font-weight: 600; color: var(--color-ink); cursor: pointer; }
-.reminder-row input { width: 20px; height: 20px; accent-color: var(--color-primary, #4a7c3f); }
+.reminder-row input { width: 20px; height: 20px; accent-color: var(--color-primary); }
 
 /* #8 回答のひとこと */
 .comments-card { margin: 16px; padding: 16px; border: 1px solid var(--color-line); border-radius: var(--radius-lg); background: var(--color-surface); }
@@ -435,5 +435,5 @@ fieldset.field legend { padding: 0; font-size: 13px; font-weight: 700; color: va
 
 /* #32 予定通知の設定 */
 .notify-toggle, .notify-time { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; font-weight: 600; color: var(--color-ink); }
-.notify-toggle input { width: 22px; height: 22px; accent-color: var(--color-primary, #4a7c3f); }
-.notify-time input { font-size: 15px; padding: 6px 10px; border: 1px solid var(--color-line); border-radius: var(--radius-md, 10px); }
+.notify-toggle input { width: 22px; height: 22px; accent-color: var(--color-primary); }
+.notify-time input { font-size: 15px; padding: 6px 10px; border: 1px solid var(--color-line); border-radius: var(--radius-md); }
