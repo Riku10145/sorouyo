@@ -17,12 +17,13 @@ import { buildDataRoutes, type DataEnv } from './data';
 
 // --- D1 を node:sqlite でシムする（migrations/*.sql をそのまま適用） ---
 
-function makeDb(): D1Database {
+function makeDb(beforeJoinInviteExpiryMigration?: (db: DatabaseSync) => void): D1Database {
   const db = new DatabaseSync(':memory:');
+  const apply = (file: string) => db.exec(readFileSync(new URL(`../../migrations/${file}`, import.meta.url), 'utf8'));
   // 新しい migration を足したらここにも列挙する
-  for (const file of ['0001_init.sql', '0002_invite_creator.sql', '0003_join_invite_expiry.sql']) {
-    db.exec(readFileSync(new URL(`../../migrations/${file}`, import.meta.url), 'utf8'));
-  }
+  for (const file of ['0001_init.sql', '0002_invite_creator.sql']) apply(file);
+  beforeJoinInviteExpiryMigration?.(db);
+  apply('0003_join_invite_expiry.sql');
   db.exec('PRAGMA foreign_keys = ON');
   const prepare = (sql: string) => {
     let args: unknown[] = [];
@@ -142,6 +143,25 @@ async function setupPoll(app: ReturnType<typeof testApp>, db: D1Database, host: 
 }
 
 describe('data', () => {
+  test('マイグレーション: 既存の参加リンクに期限を補完し、同時刻の複数リンクは最新1本だけ残す', async () => {
+    const createdAt = '2026-01-01T00:00:00.000Z';
+    const db = makeDb((raw) => {
+      raw.prepare(`INSERT INTO groups (id, name, created_at) VALUES (?, ?, ?)`).run('group_legacy', 'legacy', createdAt);
+      const insert = raw.prepare(`INSERT INTO invites (id, purpose, group_id, token_hash, created_at) VALUES (?, 'join', ?, ?, ?)`);
+      for (const id of ['invite_a', 'invite_b', 'invite_c']) insert.run(id, 'group_legacy', `hash_${id}`, createdAt);
+    });
+
+    const rows = (await db.prepare(
+      `SELECT id, expires_at, revoked_at FROM invites WHERE purpose = 'join' ORDER BY id`
+    ).all()).results as { id: string; expires_at: string | null; revoked_at: string | null }[];
+    expect(rows.map(row => row.expires_at)).toEqual([
+      '2026-01-08T00:00:00.000Z',
+      '2026-01-08T00:00:00.000Z',
+      '2026-01-08T00:00:00.000Z',
+    ]);
+    expect(rows.filter(row => !row.revoked_at).map(row => row.id)).toEqual(['invite_c']);
+  });
+
   test('永続化: 作成したグループ・調整・回答が別ブラウザ（別セッションCookie）でも同じように取れる', async () => {
     const db = makeDb();
     const app = testApp(db);
