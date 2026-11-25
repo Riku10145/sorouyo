@@ -533,8 +533,9 @@ describe('data', () => {
         state: 'expired',
       });
 
-    // 明示した期限切れでもプレビューできず、詳細には期限切れとして出る
-    await db.prepare(`UPDATE invites SET expires_at = ? WHERE id = ?`).bind(new Date(Date.now() - 1000).toISOString(), first.invite.id).run();
+    // 明示した期限切れでもプレビューできず、詳細には期限切れとして出る（発行から7日未満に戻して判定を切り分ける）
+    await db.prepare(`UPDATE invites SET created_at = ?, expires_at = ? WHERE id = ?`)
+      .bind(new Date().toISOString(), new Date(Date.now() - 1000).toISOString(), first.invite.id).run();
     expect((await post(app, db, '/api/groups/join/preview', { token: first.token })).status).toBe(404);
     const expiredDetail = await req(app, db, `/api/groups/${group.id}`, { headers: { cookie: host } });
     expect((await expiredDetail.json() as { joinInvite: { id: string; state: string } }).joinInvite)
