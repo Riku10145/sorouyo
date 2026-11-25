@@ -25,7 +25,9 @@ function ConfirmComplete({ poll, index, calendarAdded }: { poll: Poll; index: nu
       try {
         await navigator.share({ title: poll.title, text: shareText });
         return;
-      } catch { return; } // キャンセル時はコピーに倒さない
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') return; // キャンセル時はコピーに倒さない
+      }
     }
     try {
       await navigator.clipboard.writeText(shareText);

@@ -132,3 +132,43 @@ test('desktop completion sidebar shows the confirmed event instead of an empty d
     await browser.close();
   }
 });
+
+test('share cancellation is silent but share failure falls back to copy', {
+  skip: process.env.BROWSER_TEST !== '1' && 'BROWSER_TEST=1 が必要（npm run test:browser）',
+}, async () => {
+  const browser = await chromium.connectOverCDP(process.env.CDP_URL ?? 'http://localhost:29229');
+  const context = await browser.newContext({ viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true });
+  try {
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      window.__shareMode = 'abort';
+      window.__copied = [];
+      Object.defineProperty(window.navigator, 'share', {
+        configurable: true,
+        value: async () => {
+          if (window.__shareMode === 'abort') throw new DOMException('cancelled', 'AbortError');
+          throw new Error('share target failed');
+        },
+      });
+      Object.defineProperty(window.navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: async text => window.__copied.push(text) },
+      });
+    });
+    const origin = new URL(process.env.APP_URL ?? 'http://localhost:5173').origin;
+    await page.goto(`${origin}/polls/sample`);
+    await page.getByRole('button', { name: /に確定する/ }).tap();
+    await page.getByRole('heading', { name: '日程が決まりました', level: 1 }).waitFor();
+
+    await page.getByRole('button', { name: '決まった日程を共有' }).tap();
+    await page.waitForTimeout(100);
+    assert.equal(await page.evaluate(() => window.__copied.length), 0, 'share cancellation must not copy');
+
+    await page.evaluate(() => { window.__shareMode = 'failure'; });
+    await page.getByRole('button', { name: '決まった日程を共有' }).tap();
+    await page.waitForFunction(() => window.__copied.length === 1);
+  } finally {
+    await context.close();
+    await browser.close();
+  }
+});
