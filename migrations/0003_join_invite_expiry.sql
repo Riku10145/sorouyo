@@ -19,7 +19,6 @@ WHERE purpose = 'join'
         OR (newer.created_at = invites.created_at AND newer.rowid > invites.rowid))
   );
 
--- 失効していない参加リンクはグループごと1本まで。再発行は旧リンクの失効と新リンクの作成を同一バッチで行う。
-CREATE UNIQUE INDEX invites_one_unrevoked_join_per_group
-ON invites(group_id)
-WHERE purpose = 'join' AND revoked_at IS NULL;
+-- 一意制約は追加しない。索引を先に入れると、旧Workerへ切り戻した環境では
+-- 失効していない期限切れリンクが残るグループで参加リンク発行自体が失敗するため。
+-- 新Workerは再発行時の失効と作成を同一バッチで行い、1本だけを有効に保つ。
