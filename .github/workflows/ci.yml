@@ -13,11 +13,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
       - run: npm install -g npm@12.2.2
+      - if: github.event_name == 'pull_request'
+        run: npm run check:release-age -- --base "origin/$BASE_REF"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+      - if: github.event_name == 'push'
+        run: |
+          if [ "$BASE_SHA" != "0000000000000000000000000000000000000000" ] && git rev-parse --verify "$BASE_SHA^{commit}" >/dev/null 2>&1; then
+            npm run check:release-age -- --base "$BASE_SHA"
+          else
+            echo "Push base unavailable; checking all package versions."
+            npm run check:release-age
+          fi
+        env:
+          BASE_SHA: ${{ github.event.before }}
       - run: npm ci
       - run: npm run cf-typegen && git diff --exit-code -- worker-configuration.d.ts
       - run: npm run check

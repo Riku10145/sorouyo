@@ -1,7 +1,6 @@
-import { z } from 'zod';
-
-export const voteSchema = z.enum(['yes', 'maybe', 'no']);
-export type Vote = z.infer<typeof voteSchema>;
+export const VOTE_VALUES = ['yes', 'maybe', 'no'] as const;
+export type Vote = (typeof VOTE_VALUES)[number];
+const isVote = (value: unknown): value is Vote => VOTE_VALUES.some(vote => vote === value);
 export const VOTES = [
   { value: 'yes', mark: '○', label: '行ける' },
   { value: 'maybe', mark: '△', label: '未定' },
@@ -38,13 +37,13 @@ export function shiftedMonth(month: string, direction: number): string {
 export function tally(poll: { answers: readonly { votes: readonly unknown[] }[] }, index: number): Record<Vote, number> {
   const result = { yes: 0, maybe: 0, no: 0 };
   for (const answer of poll.answers) {
-    const vote = voteSchema.safeParse(answer.votes[index]);
-    if (vote.success) result[vote.data]++;
+    const vote = answer.votes[index];
+    if (isVote(vote)) result[vote]++;
   }
   return result;
 }
 
-export type PollAnswer = { name: string; votes: readonly (Vote | null)[]; comment?: string };
+export type PollAnswer = { name: string; votes: readonly (Vote | null)[]; comment?: string; own?: boolean; id?: string };
 
 export const answered = (answer: PollAnswer): boolean => answer.votes.some(vote => vote !== null);
 
@@ -61,6 +60,8 @@ export function bestCandidate(poll: { candidates: readonly unknown[]; answers: r
 }
 
 export const shortDate = (key: string): string => `${Number(key.slice(5, 7))}/${Number(key.slice(8))}`;
+/** 開始時刻の表示。空なら終日 */
+export const timeLabel = (time: string): string => time ? `${time}〜` : '終日';
 export const weekday = (key: string): string => DAYS[dateFromKey(key).getDay()]!;
 export const dayTone = (key: string): 'sun' | 'sat' | undefined => {
   const day = dateFromKey(key).getDay();
