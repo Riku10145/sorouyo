@@ -444,6 +444,52 @@ describe('data', () => {
     expect(rawDb(db).prepare(`SELECT COUNT(*) AS count FROM events WHERE source_poll_id = ?`).get(pollId)).toMatchObject({ count: 0 });
   });
 
+  test('回答送信と候補編集が競合したら古い回答を上書きせず409になる', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const { pollId, token } = await setupPoll(app, db, host);
+    const invite = await post(app, db, '/api/invite', { token });
+    const { poll } = await invite.json() as { poll: { candidates: { id: string; date: string; startTime: string | null }[] } };
+    const [kept, replaced] = poll.candidates;
+    const guestCookie = await guest(app, db);
+    expect((await post(app, db, '/api/invite/answer', {
+      token, name: '元の名前', comment: '元のメモ',
+      votes: [{ candidateId: kept!.id, value: 'yes' }, { candidateId: replaced!.id, value: 'maybe' }],
+    }, guestCookie)).status).toBe(200);
+
+    const detail = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } });
+    const { poll: latest } = await detail.json() as { poll: { editVersion: number } };
+    const deadlineAt = new Date(Date.now() + 86_400_000).toISOString();
+    // 回答APIが候補を照合した後、回答バッチの直前に編集APIの保存が入る競合を再現する
+    const originalBatch = db.batch.bind(db);
+    let editStatus = 0;
+    db.batch = async (stmts) => {
+      db.batch = originalBatch; // 内側の編集APIは通常どおりバッチを実行させる
+      editStatus = (await mutate(app, db, 'PATCH', `/api/polls/${pollId}`, {
+        editVersion: latest.editVersion,
+        title: '花見の日程',
+        deadlineAt,
+        candidates: [
+          { id: kept!.id, date: kept!.date, time: kept!.startTime },
+          { date: '2026-04-05', time: null },
+        ],
+      }, host)).status;
+      return originalBatch(stmts);
+    };
+    const raced = await post(app, db, '/api/invite/answer', {
+      token, name: '変更名', comment: '変更メモ',
+      votes: [{ candidateId: kept!.id, value: 'no' }, { candidateId: replaced!.id, value: 'yes' }],
+    }, guestCookie);
+    expect(editStatus).toBe(200);
+    expect(raced.status).toBe(409);
+
+    // 古いフォームの名前・票で部分的に上書きされていない（消えた候補の票だけ編集側の削除が残る）
+    const after = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } });
+    const { poll: saved } = await after.json() as { poll: { answers: { name: string; comment: string | null; votes: Record<string, string> }[] } };
+    expect(saved.answers[0]).toMatchObject({ name: '元の名前', comment: '元のメモ', votes: { [kept!.id]: 'yes' } });
+  });
+
   test('グループ: 作成→名前・色の更新が一覧と予定に反映され、管理者以外は変更できない', async () => {
     const db = makeDb();
     const app = testApp(db);
