@@ -12,7 +12,7 @@ const deadlineText = (poll: Poll) => poll.deadline ? `${dateLabel(poll.deadline.
 const pollDot = (poll: Poll) =>
   <span className={`dot ${poll.group.className ? `g-${poll.group.className}` : ''}`} style={poll.group.color ? { background: poll.group.color } : undefined} aria-hidden="true" />;
 
-function ConfirmComplete({ poll, index }: { poll: Poll; index: number }) {
+function ConfirmComplete({ poll, index, calendarAdded }: { poll: Poll; index: number; calendarAdded: boolean }) {
   const candidate = poll.candidates[index]!;
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -41,12 +41,12 @@ function ConfirmComplete({ poll, index }: { poll: Poll; index: number }) {
       <h2>{poll.title}</h2>
       <p>{dateLabel(candidate.date)} {timeLabel(candidate.time)}</p>
     </div>
-    <div className="calendar-added" role="status">
+    {calendarAdded && <div className="calendar-added" role="status">
       <Icon name="check" size={20} />
       <p><strong>{poll.group.name}のカレンダーに追加しました</strong><span>参加メンバーと同じ予定を確認できます。</span></p>
-    </div>
+    </div>}
     <button type="button" className="ghost-btn wide" onClick={share}><Icon name="share" size={18} />決まった日程を共有</button>
-    <a className="primary-btn wide confirm-calendar-link" href={`/?date=${candidate.date}`}><Icon name="calendar" size={18} />カレンダーで見る</a>
+    {calendarAdded && <a className="primary-btn wide confirm-calendar-link" href={`/?date=${candidate.date}`}><Icon name="calendar" size={18} />カレンダーで見る</a>}
   </section>;
 }
 
@@ -199,7 +199,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
       <div className="m-only m-back">
         <a className="text-btn" href="/polls"><Icon name="chevronLeft" size={20} />日程調整</a>
       </div>
-      <ConfirmComplete poll={poll} index={completion.index} />
+      <ConfirmComplete poll={poll} index={completion.index} calendarAdded={!!onConfirm} />
     </AppShell>;
   }
   return <AppShell active="polls" selectedDate={selectedDate} groups={[group]} subpage>

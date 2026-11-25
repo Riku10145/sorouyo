@@ -77,6 +77,12 @@ test('host answer state is explicit and the confirm completion screen does not l
     assert.equal(await page.locator('.confirm-complete').count(), 0, 'completion must disappear after leaving it');
     assert.equal(await page.locator('.confirmed').count(), 0, 'the transient confirmation notice must not remain as a banner');
     assert.ok(await page.locator('.chip-soft', { hasText: '確定' }).count() > 0, 'the confirmed candidate keeps its status chip');
+
+    await page.goto(`${origin}/polls/sample`);
+    await page.getByRole('button', { name: /に確定する/ }).tap();
+    await page.getByRole('heading', { name: '日程が決まりました', level: 1 }).waitFor();
+    assert.equal(await page.locator('.calendar-added').count(), 0, 'the sample must not claim that a calendar event was created');
+    assert.equal(await page.getByRole('link', { name: 'カレンダーで見る' }).count(), 0, 'the sample must not link to a calendar event that was not created');
   } finally {
     await context.close();
     await browser.close();
