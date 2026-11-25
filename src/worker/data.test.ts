@@ -396,6 +396,40 @@ describe('data', () => {
     expect((await post(app, db, '/api/invite', { token }, answerer)).status).toBe(404);
   });
 
+  test('候補が編集で消えた後の確定は競合になり、存在しない予定IDを返さない', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const { pollId } = await setupPoll(app, db, host);
+    const detail = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } });
+    const { poll } = await detail.json() as { poll: { editVersion: number; candidates: { id: string; date: string; startTime: string | null }[] } };
+    const removed = poll.candidates[0]!;
+    const deadlineAt = new Date(Date.now() + 86_400_000).toISOString();
+    expect((await mutate(app, db, 'PATCH', `/api/polls/${pollId}`, {
+      editVersion: poll.editVersion,
+      title: '花見の日程',
+      deadlineAt,
+      candidates: poll.candidates.slice(1).map(c => ({ id: c.id, date: c.date, time: c.startTime })),
+    }, host)).status).toBe(200);
+
+    // 編集前の画面が残していても、消えた候補では確定できない
+    expect((await post(app, db, `/api/polls/${pollId}/confirm`, { candidateId: removed.id }, host)).status).toBe(400);
+    const remaining = poll.candidates[1]!;
+    const current = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } });
+    const { poll: latest } = await current.json() as { poll: { editVersion: number } };
+    expect((await mutate(app, db, 'PATCH', `/api/polls/${pollId}`, {
+      editVersion: latest.editVersion,
+      title: '花見の日程',
+      deadlineAt,
+      candidates: [{ date: '2026-04-05', time: null }],
+    }, host)).status).toBe(200);
+    const raced = await post(app, db, `/api/polls/${pollId}/confirm`, { candidateId: remaining.id }, host);
+    expect(raced.status).toBe(400);
+    const after = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } });
+    const { poll: state } = await after.json() as { poll: { status: string; confirmedCandidateId: string | null } };
+    expect(state).toMatchObject({ status: 'open', confirmedCandidateId: null });
+  });
+
   test('グループ: 作成→名前・色の更新が一覧と予定に反映され、管理者以外は変更できない', async () => {
     const db = makeDb();
     const app = testApp(db);

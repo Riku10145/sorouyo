@@ -649,7 +649,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (poll.status === 'confirmed') {
       // 同一候補の再送は既存結果を返し、別候補は競合（service-design.md 手順4）
       if (poll.confirmed_candidate_id === candidateId) {
-        const event = await get<EventRow>(c.env.DB.prepare(`SELECT * FROM events WHERE source_poll_id = ?`).bind(poll.id).first());
+        const event = await get<EventRow>(c.env.DB.prepare(`SELECT id, date, start_time FROM events WHERE source_poll_id = ?`).bind(poll.id).first());
         return c.json({ poll: { id: poll.id, status: 'confirmed', confirmedCandidateId: candidateId }, event: event ?? null } as const, 200);
       }
       return c.json({ error: 'conflict', confirmedCandidateId: poll.confirmed_candidate_id } as const, 409);
@@ -658,8 +658,9 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const eventId = crypto.randomUUID();
     const results = await c.env.DB.batch([
       c.env.DB.prepare(
-        `UPDATE polls SET status = 'confirmed', confirmed_candidate_id = ?, reopen_pending = 0, edit_version = edit_version + 1 WHERE id = ? AND status = 'open'`
-      ).bind(candidateId, poll.id),
+        `UPDATE polls SET status = 'confirmed', confirmed_candidate_id = ?, reopen_pending = 0, edit_version = edit_version + 1
+         WHERE id = ? AND status = 'open' AND EXISTS (SELECT 1 FROM candidates WHERE id = ? AND poll_id = ?)`
+      ).bind(candidateId, poll.id, candidateId, poll.id),
       c.env.DB.prepare(
         `INSERT INTO events (id, group_id, date, start_time, title, source_poll_id, created_at)
          SELECT ?, p.group_id, c.date, c.start_time, p.title, p.id, ?
@@ -671,7 +672,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
       // 同時確定: 先に成立した方を正本として結果を返す
       const latest = await get<PollRow>(c.env.DB.prepare(`SELECT * FROM polls WHERE id = ?`).bind(poll.id).first());
       if (latest?.confirmed_candidate_id === candidateId) {
-        const event = await get<EventRow>(c.env.DB.prepare(`SELECT * FROM events WHERE source_poll_id = ?`).bind(poll.id).first());
+        const event = await get<EventRow>(c.env.DB.prepare(`SELECT id, date, start_time FROM events WHERE source_poll_id = ?`).bind(poll.id).first());
         return c.json({ poll: { id: poll.id, status: 'confirmed', confirmedCandidateId: candidateId }, event: event ?? null } as const, 200);
       }
       return c.json({ error: 'conflict', confirmedCandidateId: latest?.confirmed_candidate_id ?? null } as const, 409);
