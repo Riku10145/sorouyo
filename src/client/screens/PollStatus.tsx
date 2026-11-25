@@ -112,16 +112,19 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
   const viewerName = me ? [me.user.lastName, me.user.firstName].filter(Boolean).join(' ') || me.user.email : undefined;
   return <PollStatus poll={poll} selectedDate={selectedDate} expired={expired}
     canConfirm={me?.user.id === remote.creatorId} // 確定は主催者のみ（バックエンドも403で保護）
+    canViewTally={me?.user.id === remote.creatorId}
     viewerName={viewerName}
     onConfirm={index => confirmCandidate(remote.id, remote.candidates[index]!.id)}
     onCopyLink={link}
     onAnswerLink={async () => { const url = await link(); window.location.href = url; }} />;
 }
 
-export function PollStatus({ poll, selectedDate, expired = false, canConfirm = true, viewerName, onConfirm, onCopyLink, onAnswerLink }: {
+export function PollStatus({ poll, selectedDate, expired = false, canConfirm = true, canViewTally = true, viewerName, onConfirm, onCopyLink, onAnswerLink }: {
   poll: Poll; selectedDate: string; expired?: boolean;
   /** 確定権限がある操作者か（主催者のみ。メンバーには確定UIを出さない） */
   canConfirm?: boolean;
+  /** 集計権限がある操作者か。メンバーには自分の回答状態だけを出す */
+  canViewTally?: boolean;
   /** 回答前の自分を一覧に出すためのログイン中の表示名 */
   viewerName?: string;
   onConfirm?: (index: number) => Promise<boolean>;
@@ -190,8 +193,8 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   const expiredBanner = expired && confirmed === null && <p className="expired-note" role="status">
     <Icon name="clock" size={18} />{canConfirm ? '回答締切を過ぎました。回答は締め切られていますが、候補を選んで確定できます。' : '回答締切を過ぎました。回答は締め切られています。'}
   </p>;
-  const progressText = `${displayAnswers.length}人中${respondents}人が回答`;
-  const progress = <p className="progress"><span className="bars" aria-hidden="true">{displayAnswers.map((_, i) => <i key={i} className={i < respondents ? 'on' : ''} />)}</span>{progressText}</p>;
+  const progressText = canViewTally ? `${displayAnswers.length}人中${respondents}人が回答` : answered(you) ? 'あなたは回答済みです' : 'あなたは未回答です';
+  const progress = <p className="progress">{canViewTally && <span className="bars" aria-hidden="true">{displayAnswers.map((_, i) => <i key={i} className={i < respondents ? 'on' : ''} />)}</span>}{progressText}</p>;
   const deadline = deadlineText(poll);
 
   const group: DisplayGroup = { id: poll.token || poll.title, name: poll.group.name, color: poll.group.color ?? null, className: poll.group.className };
@@ -237,17 +240,17 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
           ? <article key={item.id ?? item.date} ref={chosenCard} tabIndex={-1} className="cand-card" aria-label={`${label}（選択中）`}>
             <div className="cand-top">
               <p className="cand-date"><span className="num">{shortDate(item.date)}</span><small className={dayTone(item.date)}>{weekday(item.date)}</small><span className="cand-time num">{timeLabel(item.time)}</span></p>
-              <div className="cand-flags">{index === best && <span>参加できる人が最多</span>}{index === confirmed && <span className="chip-soft">確定</span>}<span className="chip-selected"><Icon name="check" size={14} />選択中</span></div>
+              <div className="cand-flags">{canViewTally && index === best && <span>参加できる人が最多</span>}{index === confirmed && <span className="chip-soft">確定</span>}<span className="chip-selected"><Icon name="check" size={14} />選択中</span></div>
             </div>
             <ul className="member-marks">
               {you && <li>{answered(you) ? <span className={`mark-circle v-${you.votes[index] ?? 'none'}`}><VoteMark vote={you.votes[index] ?? null} /></span> : <span className="badge-pending">未回答</span>}<strong>あなた</strong></li>}
               {others.map(answer => <li key={answer.name}><span className={`mark-circle v-${answer.votes[index] ?? 'none'}`}><VoteMark vote={answer.votes[index] ?? null} /></span><span>{answer.name}</span></li>)}
             </ul>
           </article>
-          : <button type="button" key={item.id ?? item.date} className="cand-row" onClick={() => choose(index)} aria-label={`${label}、参加${count.yes}、未定${count.maybe}、欠席${count.no}。この候補日を選ぶ`}>
+          : <button type="button" key={item.id ?? item.date} className="cand-row" onClick={() => choose(index)} aria-label={`${label}${canViewTally ? `、参加${count.yes}、未定${count.maybe}、欠席${count.no}` : ''}。この候補日を選ぶ`}>
             <span className="cand-date"><span className="num">{shortDate(item.date)}</span><small className={dayTone(item.date)}>{weekday(item.date)}</small><span className="cand-time num">{timeLabel(item.time)}</span></span>
             {index === confirmed && <span className="chip-soft">確定</span>}
-            <span className="counts"><span>参加<b>{count.yes}</b></span><span>未定<b className="maybe">{count.maybe}</b></span><span>欠席<b className="no">{count.no}</b></span></span>
+            {canViewTally && <span className="counts"><span>参加<b>{count.yes}</b></span><span>未定<b className="maybe">{count.maybe}</b></span><span>欠席<b className="no">{count.no}</b></span></span>}
             <Icon name="chevronRight" size={18} />
           </button>;
       })}
