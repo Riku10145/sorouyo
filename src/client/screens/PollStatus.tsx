@@ -179,7 +179,8 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   const expiredBanner = expired && confirmed === null && <p className="expired-note" role="status">
     <Icon name="clock" size={18} />{canConfirm ? '回答締切を過ぎました。回答は締め切られていますが、候補を選んで確定できます。' : '回答締切を過ぎました。回答は締め切られています。'}
   </p>;
-  const progress = <p className="progress"><span className="bars" aria-hidden="true">{poll.answers.map((_, i) => <i key={i} className={i < respondents ? 'on' : ''} />)}</span>{poll.answers.length ? `${poll.answers.length}人中${respondents}人が回答` : 'まだ回答がありません'}</p>;
+  const progressText = `${displayAnswers.length}人中${respondents}人が回答`;
+  const progress = <p className="progress"><span className="bars" aria-hidden="true">{displayAnswers.map((_, i) => <i key={i} className={i < respondents ? 'on' : ''} />)}</span>{progressText}</p>;
   const deadline = deadlineText(poll);
 
   const group: DisplayGroup = { id: poll.token || poll.title, name: poll.group.name, color: poll.group.color ?? null, className: poll.group.className };
@@ -207,7 +208,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
     </div>
     <InviteHero poll={poll} eyebrow={`${poll.group.name}の日程調整`} footer={<p className="m-only hero-deadline">回答締切 {deadline}</p>}>
       <span className="m-only">{progress}</span>
-      <p className="desk-only hero-meta">{poll.answers.length ? `${poll.answers.length}人中${respondents}人が回答` : 'まだ回答がありません'}<span aria-hidden="true">・</span>回答締切 {deadline}</p>
+      <p className="desk-only hero-meta">{progressText}<span aria-hidden="true">・</span>回答締切 {deadline}</p>
     </InviteHero>
     {expiredBanner}
 

@@ -46,12 +46,14 @@ test('host answer state is explicit and the confirm completion screen does not l
     assert.match((await ownMark.textContent()) ?? '', /未回答/);
     assert.match((await ownMark.textContent()) ?? '', /あなた/);
     assert.equal(await page.getByText('あなたはまだ未回答です').count(), 1);
+    await page.getByText('2人中1人が回答', { exact: true }).waitFor();
 
     pollA.answers.push({ id: 'answer-host', name: '山田 太郎', comment: null, own: true, votes: { 'cand-1': 'yes' }, createdAt: '2026-11-01T01:00:00Z' });
     await page.goto(`${origin}/polls/poll-a`);
     await ownMark.waitFor();
     assert.doesNotMatch((await ownMark.textContent()) ?? '', /未回答/, 'an answered host must not remain in the pending state');
     assert.equal(await page.getByText('あなたはまだ未回答です').count(), 0);
+    await page.getByText('2人中2人が回答', { exact: true }).waitFor();
 
     await page.getByRole('button', { name: /に確定する/ }).tap();
     const complete = page.getByRole('heading', { name: '日程が決まりました', level: 1 });
