@@ -129,33 +129,39 @@ async function writeAnswer(
 ) {
   const answerId = crypto.randomUUID();
   const at = now();
+  const candidateIds = [...new Set(votes.map(vote => vote.candidateId))];
+  const candidateGuard = candidateIds.length
+    ? `(SELECT COUNT(DISTINCT id) FROM candidates WHERE poll_id = ? AND id IN (${candidateIds.map(() => '?').join(',')})) = ${candidateIds.length}`
+    : '1 = 1';
+  const guardBinds = candidateIds.length ? [pollId, ...candidateIds] : [];
   const stmts = [
     c.env.DB.prepare(
       `INSERT INTO answers (id, poll_id, respondent_key, user_id, guest_id, display_name, comment, created_at, updated_at)
        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
-       WHERE EXISTS (SELECT 1 FROM polls WHERE id = ? AND ${OPEN_WHERE})
+       WHERE EXISTS (SELECT 1 FROM polls WHERE id = ? AND ${OPEN_WHERE}) AND (${candidateGuard})
        ON CONFLICT (poll_id, respondent_key) DO UPDATE SET
          display_name = excluded.display_name, comment = excluded.comment, updated_at = excluded.updated_at
        WHERE EXISTS (SELECT 1 FROM polls WHERE id = excluded.poll_id AND ${OPEN_WHERE})`
-    ).bind(answerId, pollId, key, ids.userId ?? null, ids.guestId ?? null, name, comment, at, at, pollId, at, at),
+    ).bind(answerId, pollId, key, ids.userId ?? null, ids.guestId ?? null, name, comment, at, at, pollId, at, ...guardBinds, at),
     c.env.DB.prepare(
       `DELETE FROM votes WHERE answer_id = (SELECT id FROM answers WHERE poll_id = ? AND respondent_key = ?)
-       AND EXISTS (SELECT 1 FROM polls WHERE id = ? AND ${OPEN_WHERE})`
-    ).bind(pollId, key, pollId, at),
+       AND EXISTS (SELECT 1 FROM polls WHERE id = ? AND ${OPEN_WHERE}) AND (${candidateGuard})`
+    ).bind(pollId, key, pollId, at, ...guardBinds),
     // 回答書き込みで調整の版を進め、開いていた編集画面が新しい票を見落としたまま保存しないようにする
     c.env.DB.prepare(
-      `UPDATE polls SET edit_version = edit_version + 1 WHERE id = ? AND ${OPEN_WHERE}`
-    ).bind(pollId, at),
+      `UPDATE polls SET edit_version = edit_version + 1 WHERE id = ? AND ${OPEN_WHERE} AND (${candidateGuard})`
+    ).bind(pollId, at, ...guardBinds),
   ];
   for (const vote of votes) {
     stmts.push(c.env.DB.prepare(
       `INSERT INTO votes (answer_id, candidate_id, value)
        SELECT (SELECT id FROM answers WHERE poll_id = ? AND respondent_key = ?), c.id, ?
        FROM candidates c JOIN polls p ON p.id = c.poll_id
-       WHERE c.id = ? AND c.poll_id = ? AND p.${OPEN_WHERE}`
-    ).bind(pollId, key, vote.value, vote.candidateId, pollId, at));
+       WHERE c.id = ? AND c.poll_id = ? AND p.${OPEN_WHERE} AND (${candidateGuard})`
+    ).bind(pollId, key, vote.value, vote.candidateId, pollId, at, ...guardBinds));
   }
-  await c.env.DB.batch(stmts);
+  const results = await c.env.DB.batch(stmts);
+  const wrote = !!results[0]?.meta?.changes && !!results[2]?.meta?.changes;
   const saved = await get<AnswerRow>(c.env.DB.prepare(
     `SELECT * FROM answers WHERE poll_id = ? AND respondent_key = ?`
   ).bind(pollId, key).first());
@@ -163,7 +169,7 @@ async function writeAnswer(
     `SELECT v.* FROM votes v JOIN answers a ON a.id = v.answer_id WHERE a.poll_id = ? AND a.respondent_key = ?`
   ).bind(pollId, key).all());
   // 受付中でないと条件付き書き込みは0行になり、 saved には古い行が残る。受付判定は呼び出し側で行う
-  return { saved: saved ?? null, savedVotes };
+  return { wrote, saved: saved ?? null, savedVotes };
 }
 
 // --- バリデーション ----------------------------------------------------------
@@ -847,7 +853,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const accepting = poll.status === 'open' && !poll.reopen_pending && (!poll.deadline_at || new Date(poll.deadline_at).getTime() > Date.now());
     if (!accepting) return c.json({ error: 'closed' } as const, 410);
 
-    const { saved, savedVotes } = await writeAnswer(c, poll.id, key, ids, body.data.name, body.data.comment ?? null, votes);
+    const { wrote, saved, savedVotes } = await writeAnswer(c, poll.id, key, ids, body.data.name, body.data.comment ?? null, votes);
     // 受付チェックと書き込みの間に確定・締切が入ると条件付きSQLは0行になる。書き込み後に再読して、
     // 締まっていれば410、受付中なら最新の回答を冪等に返す（同一回答者の競合書き込みも受理扱い）
     const latest = await get<Pick<PollRow, 'status' | 'deadline_at' | 'reopen_pending'>>(c.env.DB.prepare(
@@ -855,7 +861,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     ).bind(poll.id).first());
     const stillOpen = latest?.status === 'open' && !latest.reopen_pending && (!latest.deadline_at || new Date(latest.deadline_at).getTime() > Date.now());
     if (!stillOpen) return c.json({ error: 'closed' } as const, 410);
-    if (!saved || (votes.length && !savedVotes.length)) return c.json({ error: 'conflict' } as const, 409);
+    if (!wrote || !saved) return c.json({ error: 'conflict' } as const, 409);
     return c.json({
       answer: {
         id: saved.id,
