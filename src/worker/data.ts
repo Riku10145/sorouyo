@@ -12,6 +12,7 @@ import {
 
 export interface DataEnv extends AuthEnv {
   DB: D1Database;
+  ANALYTICS_TOKEN?: string;
 }
 
 type C = Context<{ Bindings: DataEnv }>;
@@ -118,6 +119,25 @@ const newInvite = async (c: C, purpose: 'answer' | 'join', ref: { pollId?: strin
   ).bind(crypto.randomUUID(), purpose, ref.pollId ?? null, ref.groupId ?? null, await sha256(token), createdBy ?? null, now()).run();
   return token;
 };
+
+// --- 計測（#20） -------------------------------------------------------------
+
+const analyticsDay = (timestamp = Date.now()) =>
+  new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date(timestamp));
+
+/** 匿名の訪問者Cookieだけを使い、表示名・予定名・コメント・リンク秘密部分を残さない。 */
+async function recordAnalytics(c: C, eventType: 'invite_visit' | 'answer_submit', inviteId: string, pollId: string) {
+  const visitorId = await ensureGuest(c);
+  const at = now();
+  await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO analytics_events
+     (id, event_type, visitor_id, invite_id, poll_id, occurred_on, created_at, dedupe_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    crypto.randomUUID(), eventType, visitorId, inviteId, pollId,
+    analyticsDay(), at, `${eventType}:${inviteId}:${visitorId}`,
+  ).run();
+}
 
 // --- 回答の書き込み ----------------------------------------------------------
 
@@ -602,6 +622,50 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     } as const);
   })
 
+  // 内部用の招待到達率。既定は直近30日の日別。利用者向け画面には出さず、運用者だけがBearerトークンで読む
+  .get('/analytics/funnel', async (c) => {
+    const token = c.env.ANALYTICS_TOKEN;
+    if (!token) return c.json({ error: 'analytics_not_configured' } as const, 503);
+    if (c.req.header('authorization') !== `Bearer ${token}`) return c.json({ error: 'unauthenticated' } as const, 401);
+    const daysParam = Number(c.req.query('days') ?? '30');
+    const days = Number.isInteger(daysParam) && daysParam >= 1 && daysParam <= 90 ? daysParam : 30;
+    const end = analyticsDay();
+    const startTimestamp = Date.parse(`${end}T00:00:00Z`) - (days - 1) * 24 * 60 * 60 * 1000;
+    const dates = Array.from({ length: days }, (_, index) => analyticsDay(startTimestamp + index * 24 * 60 * 60 * 1000));
+    const rows = await all<{ day: string; event_type: 'invite_visit' | 'answer_submit'; n: number }>(c.env.DB.prepare(
+      `SELECT occurred_on AS day, event_type, COUNT(*) AS n FROM analytics_events
+       WHERE occurred_on >= ? AND occurred_on <= ? AND event_type IN ('invite_visit', 'answer_submit')
+       GROUP BY occurred_on, event_type`
+    ).bind(dates[0], end).all());
+    const byDay = new Map(dates.map(day => [day, { date: day, validLinkVisits: 0, answerCompletions: 0 }]));
+    for (const row of rows) {
+      const entry = byDay.get(row.day);
+      if (!entry) continue;
+      if (row.event_type === 'invite_visit') entry.validLinkVisits = row.n;
+      else entry.answerCompletions = row.n;
+    }
+    const daily = [...byDay.values()].map(entry => ({
+      ...entry,
+      completionRate: entry.validLinkVisits ? entry.answerCompletions / entry.validLinkVisits : null,
+    }));
+    const totals = daily.reduce((sum, entry) => ({
+      validLinkVisits: sum.validLinkVisits + entry.validLinkVisits,
+      answerCompletions: sum.answerCompletions + entry.answerCompletions,
+    }), { validLinkVisits: 0, answerCompletions: 0 });
+    return c.json({
+      range: { start: dates[0], end, days },
+      definition: {
+        visit: '有効な回答リンクを開いた回数。無効リンクは分母に含めない',
+        completion: '有効な回答リンクから回答書き込みが受理された回数',
+        dedupe: 'イベント種別＋招待の内部ID＋匿名訪問者Cookieで一意。再読込・再送は重複除外し、再発行リンクは別の招待として数える',
+        rate: '期間内の answerCompletions / validLinkVisits。日別も同じ日に記録された数値の比',
+        future: '利用開始率は usage_start、有料転換率は checkout_completed を同じ匿名イベント構造で追加して区別する',
+      },
+      totals: { ...totals, completionRate: totals.validLinkVisits ? totals.answerCompletions / totals.validLinkVisits : null },
+      daily,
+    } as const);
+  })
+
   // --- ゲスト（回答リンク） ---------------------------------------------------
 
   // 招待トークンで調整を開く。返すのはその調整・自分の回答・確定日だけ（メンバー一覧や他の予定は出さない）
@@ -614,6 +678,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     }
     const poll = await get<PollRow>(c.env.DB.prepare(`SELECT * FROM polls WHERE id = ?`).bind(invite.poll_id).first());
     if (!poll) return c.json({ error: 'invite_invalid' } as const, 404);
+    await recordAnalytics(c, 'invite_visit', invite.id, poll.id);
     const subject = await subjectOf(c);
     let ownAnswer: { name: string; comment: string | null; votes: Record<string, string> } | null = null;
     const key = subject.userId ? `u:${subject.userId}` : subject.guestId ? `g:${subject.guestId}` : undefined;
@@ -705,6 +770,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const stillOpen = latest?.status === 'open' && (!latest.deadline_at || new Date(latest.deadline_at).getTime() > Date.now());
     if (!stillOpen) return c.json({ error: 'closed' } as const, 410);
     if (!saved || (votes.length && !savedVotes.length)) return c.json({ error: 'conflict' } as const, 409);
+    await recordAnalytics(c, 'answer_submit', invite.id, poll.id);
     return c.json({
       answer: {
         id: saved.id,

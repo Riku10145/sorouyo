@@ -63,23 +63,23 @@ test('guest answer survives reopening the invite after any eager session respons
         assert.ok(cookie, 'held session response must try to set a cookie');
         heldCookies.push(cookie);
       }
-      assert.equal(await guestValue(context), undefined, 'fresh browser has no guest cookie at submit time');
+      const openedCookie = await guestValue(context);
+      assert.ok(openedCookie, 'valid invite open issues the anonymous guest cookie');
       const [submit] = await Promise.all([
         page.waitForResponse(answerUrl),
         page.getByRole('button', { name: '回答を送る' }).tap(),
       ]);
       assert.equal(submit.status(), 200);
       await page.getByRole('heading', { name: '回答を送りました' }).waitFor();
-      const submittedCookie = cookieValue(await submit.headerValues('set-cookie'));
-      assert.ok(submittedCookie);
-      assert.equal(await guestValue(context) === submittedCookie, true, 'browser accepted the submit cookie');
+      const submittedCookie = cookieValue(await submit.headerValues('set-cookie')) ?? openedCookie;
+      assert.equal(await guestValue(context) === submittedCookie, true, 'browser keeps the invite cookie through submit');
       const control = await context.request.post(inviteUrl, { data: { token } });
       assert.equal(control.status(), 200);
       assert.equal((await control.json()).poll.ownAnswer?.name, name, 'submit cookie can read the answer before release');
 
       release();
       await Promise.all(sessions.map(session => session.delivered));
-      assert.ok(heldCookies.every(cookie => cookie !== submittedCookie), 'held session cookies differ from the submit cookie');
+      assert.ok(heldCookies.every(cookie => cookie !== submittedCookie), 'held session cookies differ from the answer cookie');
 
       const reopened = await context.newPage();
       reopened.setDefaultTimeout(10_000);

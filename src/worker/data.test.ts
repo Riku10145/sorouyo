@@ -20,7 +20,7 @@ import { buildDataRoutes, type DataEnv } from './data';
 function makeDb(): D1Database {
   const db = new DatabaseSync(':memory:');
   // 新しい migration を足したらここにも列挙する
-  for (const file of ['0001_init.sql', '0002_invite_creator.sql']) {
+  for (const file of ['0001_init.sql', '0002_invite_creator.sql', '0004_analytics_events.sql']) {
     db.exec(readFileSync(new URL(`../../migrations/${file}`, import.meta.url), 'utf8'));
   }
   db.exec('PRAGMA foreign_keys = ON');
@@ -102,7 +102,7 @@ function testApp(db: D1Database) {
     .route('/api', buildDataRoutes(() => deps));
 }
 
-const env = (db: D1Database): DataEnv => ({ DB: db, WORKOS_COOKIE_PASSWORD: 'x'.repeat(40) });
+const env = (db: D1Database): DataEnv => ({ DB: db, WORKOS_COOKIE_PASSWORD: 'x'.repeat(40), ANALYTICS_TOKEN: 'analytics-secret' });
 
 const req = (app: ReturnType<typeof testApp>, db: D1Database, path: string, init?: RequestInit) =>
   app.request(`https://app.example${path}`, init, env(db));
@@ -590,4 +590,45 @@ describe('data', () => {
     expect(inv.accepting).toBe(false);
     expect((await post(app, db, '/api/invite/answer', { token, name: 'x', votes: [{ candidateId: inv.candidates[0]!.id, value: 'yes' }] }, await guest(app, db))).status).toBe(410);
   });
+
+  test('計測: 有効リンク訪問と回答完了を匿名IDで重複除外し、30日の日別率を返す', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const { token } = await setupPoll(app, db, host);
+    const guestCookie = await guest(app, db);
+
+    // 無効リンクは分母に入らない。有効リンクの再読込は同じ匿名訪問者なら1回だけ
+    expect((await post(app, db, '/api/invite', { token: 'invalid' }, guestCookie)).status).toBe(404);
+    const firstOpen = await post(app, db, '/api/invite', { token }, guestCookie);
+    expect(firstOpen.status).toBe(200);
+    expect((await post(app, db, '/api/invite', { token }, guestCookie)).status).toBe(200);
+    const { poll } = await firstOpen.json() as { poll: { candidates: { id: string }[] } };
+    const candidateId = poll.candidates[0]!.id;
+    const answerBody = { token, name: '秘密の名前', comment: '秘密のメモ', votes: [{ candidateId, value: 'yes' }] };
+    expect((await post(app, db, '/api/invite/answer', answerBody, guestCookie)).status).toBe(200);
+    // 回答の更新再送は分子を増やさない
+    expect((await post(app, db, '/api/invite/answer', answerBody, guestCookie)).status).toBe(200);
+
+    expect((await req(app, db, '/api/analytics/funnel')).status).toBe(401);
+    const res = await req(app, db, '/api/analytics/funnel', { headers: { authorization: 'Bearer analytics-secret' } });
+    expect(res.status).toBe(200);
+    const funnel = await res.json() as {
+      range: { days: number };
+      totals: { validLinkVisits: number; answerCompletions: number; completionRate: number | null };
+      daily: { date: string; validLinkVisits: number; answerCompletions: number; completionRate: number | null }[];
+    };
+    expect(funnel.range.days).toBe(30);
+    expect(funnel.daily).toHaveLength(30);
+    expect(funnel.totals).toEqual({ validLinkVisits: 1, answerCompletions: 1, completionRate: 1 });
+    const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
+    expect(funnel.daily.find(day => day.date === today)).toMatchObject({ validLinkVisits: 1, answerCompletions: 1, completionRate: 1 });
+
+    // 計測イベントには表示名・予定名・コメント・リンク秘密部分を保存しない
+    const rows = await db.prepare(`SELECT * FROM analytics_events`).all() as { results: Record<string, unknown>[] };
+    expect(rows.results).toHaveLength(2);
+    const serialized = JSON.stringify(rows.results);
+    for (const secret of ['秘密の名前', '秘密のメモ', '花見', token]) expect(serialized.includes(secret)).toBe(false);
+  });
+
 });
