@@ -88,3 +88,47 @@ test('host answer state is explicit and the confirm completion screen does not l
     await browser.close();
   }
 });
+
+test('desktop completion sidebar shows the confirmed event instead of an empty day', {
+  skip: process.env.BROWSER_TEST !== '1' && 'BROWSER_TEST=1 が必要（npm run test:browser）',
+}, async () => {
+  const browser = await chromium.connectOverCDP(process.env.CDP_URL ?? 'http://localhost:29229');
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  try {
+    const page = await context.newPage();
+    const origin = new URL(process.env.APP_URL ?? 'http://localhost:5173').origin;
+    const user = { id: 'host-user', email: 'host@example.test', firstName: '太郎', lastName: '山田' };
+    const group = { id: 'friends', name: 'いつメン', color: '#4E8A5A' };
+    const candidates = [
+      { id: 'cand-1', date: '2026-11-21', startTime: '19:00' },
+      { id: 'cand-2', date: '2026-11-22', startTime: '12:00' },
+    ];
+    const poll = {
+      id: 'poll-a', title: '餃子の会', status: 'open', deadlineAt: null, confirmedCandidateId: null,
+      group, creatorId: user.id, hostName: '山田 太郎', candidates,
+      answers: [],
+    };
+    await page.route(`${origin}/api/auth/me`, route => route.fulfill({ json: { user } }));
+    await page.route(/\/api\/polls\/.*/, route => {
+      const request = route.request();
+      const action = new URL(request.url()).pathname.split('/')[4];
+      if (request.method() === 'GET' && !action) return route.fulfill({ json: { poll } });
+      if (request.method() === 'POST' && action === 'confirm') {
+        poll.status = 'confirmed';
+        poll.confirmedCandidateId = 'cand-1';
+        return route.fulfill({ json: { poll: { id: poll.id, status: 'confirmed', confirmedCandidateId: 'cand-1' } } });
+      }
+      return route.fulfill({ status: 500, json: { error: 'unexpected' } });
+    });
+
+    await page.goto(`${origin}/polls/poll-a`);
+    await page.getByRole('button', { name: 'この日程に確定する' }).click();
+    await page.getByRole('heading', { name: '日程が決まりました', level: 1 }).waitFor();
+    const sideDay = page.locator('.side-day');
+    await sideDay.getByText('餃子の会').waitFor();
+    assert.match((await sideDay.textContent()) ?? '', /19:00/);
+  } finally {
+    await context.close();
+    await browser.close();
+  }
+});
