@@ -57,6 +57,7 @@ function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry
   const changeMonth = (next: string) => { setMonth(next); onMonthChange?.(next); };
   const go = (date: string) => { setSelected(date); changeMonth(date.slice(0, 7)); };
   const grid = useRef<HTMLDivElement>(null);
+  const dayPanel = useRef<HTMLElement>(null);
   const restoreCellFocus = useRef(false);
   useLayoutEffect(() => {
     if (!restoreCellFocus.current) return;
@@ -76,6 +77,10 @@ function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry
   const onCellClick = (date: string) => {
     if (!date.startsWith(month)) restoreCellFocus.current = true;
     go(date);
+    if (window.innerWidth < 1024) {
+      // スマホでは選択日の一覧が画面外にありうる。1タップで全文まで読めるようパネルへ移す
+      requestAnimationFrame(() => dayPanel.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    }
   };
   const focusable = cells.includes(selected) ? selected : cells.find(date => date.startsWith(month));
   const add = (trigger: HTMLButtonElement) => onAdd ? onAdd(selected, trigger) : notReady('予定の追加');
@@ -129,7 +134,7 @@ function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry
       </div>
     </section>
 
-    <section className="day-panel" aria-labelledby="day-heading">
+    <section ref={dayPanel} className="day-panel" aria-labelledby="day-heading">
       <div className="day-head">
         <h2 id="day-heading">{dateLabel(selected)}{!dayNotice && <span className="count">{dayEvents.length}件</span>}</h2>
         <button type="button" className="primary-btn" onClick={e => add(e.currentTarget)}><Icon name="plus" size={18} />予定を追加</button>

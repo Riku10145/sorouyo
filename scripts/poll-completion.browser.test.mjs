@@ -1,0 +1,76 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { chromium } from 'playwright-core';
+
+test('host answer state is explicit and the confirm completion screen does not leak across polls', {
+  skip: process.env.BROWSER_TEST !== '1' && 'BROWSER_TEST=1 が必要（npm run test:browser）',
+}, async () => {
+  const browser = await chromium.connectOverCDP(process.env.CDP_URL ?? 'http://localhost:29229');
+  const context = await browser.newContext({ viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true });
+  try {
+    const page = await context.newPage();
+    const origin = new URL(process.env.APP_URL ?? 'http://localhost:5173').origin;
+    const user = { id: 'host-user', email: 'host@example.test', firstName: '太郎', lastName: '山田' };
+    const group = { id: 'friends', name: 'いつメン', color: '#4E8A5A' };
+    const candidates = [
+      { id: 'cand-1', date: '2026-11-21', startTime: '19:00' },
+      { id: 'cand-2', date: '2026-11-22', startTime: '12:00' },
+    ];
+    const pollA = {
+      id: 'poll-a', title: '餃子の会', status: 'open', deadlineAt: null, confirmedCandidateId: null,
+      group, creatorId: user.id, hostName: '山田 太郎', candidates,
+      answers: [{ id: 'answer-hana', name: 'はな', comment: null, own: false, votes: { 'cand-1': 'yes', 'cand-2': 'no' }, createdAt: '2026-11-01T00:00:00Z' }],
+    };
+    const pollB = { ...pollA, id: 'poll-b', title: '別の集まり', answers: [] };
+    const bodyFor = poll => ({ poll: JSON.parse(JSON.stringify({ ...poll, group })) });
+    await page.route(`${origin}/api/auth/me`, route => route.fulfill({ json: { user } }));
+    await page.route(/\/api\/polls\/.*/, async route => {
+      const request = route.request();
+      const parts = new URL(request.url()).pathname.split('/');
+      const id = parts[3];
+      const action = parts[4];
+      const poll = id === 'poll-a' ? pollA : id === 'poll-b' ? pollB : null;
+      if (!poll) return route.fulfill({ status: 404, json: { error: 'not_found' } });
+      if (request.method() === 'GET' && !action) return route.fulfill({ json: bodyFor(poll) });
+      if (request.method() === 'POST' && action === 'confirm') {
+        poll.status = 'confirmed';
+        poll.confirmedCandidateId = 'cand-1';
+        return route.fulfill({ json: { poll: { id: poll.id, status: 'confirmed', confirmedCandidateId: 'cand-1' } } });
+      }
+      return route.fulfill({ status: 500, json: { error: 'unexpected' } });
+    });
+
+    await page.goto(`${origin}/polls/poll-a`);
+    const ownMark = page.locator('.member-marks li').first();
+    await ownMark.waitFor();
+    assert.match((await ownMark.textContent()) ?? '', /未回答/);
+    assert.match((await ownMark.textContent()) ?? '', /あなた/);
+    assert.equal(await page.getByText('あなたはまだ未回答です').count(), 1);
+
+    pollA.answers.push({ id: 'answer-host', name: '山田 太郎', comment: null, own: true, votes: { 'cand-1': 'yes' }, createdAt: '2026-11-01T01:00:00Z' });
+    await page.goto(`${origin}/polls/poll-a`);
+    await ownMark.waitFor();
+    assert.doesNotMatch((await ownMark.textContent()) ?? '', /未回答/, 'an answered host must not remain in the pending state');
+    assert.equal(await page.getByText('あなたはまだ未回答です').count(), 0);
+
+    await page.getByRole('button', { name: /に確定する/ }).tap();
+    const complete = page.getByRole('heading', { name: '日程が決まりました', level: 1 });
+    await complete.waitFor();
+    assert.equal(await complete.evaluate(heading => heading === document.activeElement), true, 'the completion heading must receive focus');
+    await page.getByText('いつメンのカレンダーに追加しました').waitFor();
+    await page.getByRole('link', { name: 'カレンダーで見る' }).waitFor();
+
+    await page.goto(`${origin}/polls/poll-b`);
+    await page.getByRole('heading', { name: '別の集まり', level: 1 }).waitFor();
+    assert.equal(await page.locator('.confirm-complete').count(), 0, 'completion must not appear on another poll');
+
+    await page.goto(`${origin}/polls/poll-a`);
+    await page.getByRole('heading', { name: '餃子の会', level: 1 }).waitFor();
+    assert.equal(await page.locator('.confirm-complete').count(), 0, 'completion must disappear after leaving it');
+    assert.equal(await page.locator('.confirmed').count(), 0, 'the transient confirmation notice must not remain as a banner');
+    assert.ok(await page.locator('.chip-soft', { hasText: '確定' }).count() > 0, 'the confirmed candidate keeps its status chip');
+  } finally {
+    await context.close();
+    await browser.close();
+  }
+});
