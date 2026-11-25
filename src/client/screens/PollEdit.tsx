@@ -151,7 +151,7 @@ export function PollEdit({ id, selectedDate }: { id: string; selectedDate: strin
         </label>
       </section>
       <section className="card form-card">
-        <div className="section-head"><h2>候補日</h2><button type="button" className="text-btn" disabled={candidates.length >= 31} onClick={() => setCandidates(current => [...current, { date: '', time: null }])}><Icon name="plus" size={18} />候補日を追加</button></div>
+        <div className="section-head"><h2>候補日<span className="hint">（{candidates.length}/31件）</span></h2><button type="button" className="text-btn" disabled={candidates.length >= 31} onClick={() => setCandidates(current => [...current, { date: '', time: null }])}><Icon name="plus" size={18} />候補日を追加</button></div>
         <p className="hint">候補の日時を変えると、その候補に入っていた票は消えます。残った候補への回答は保持されます。</p>
         <ul className="group-list">
           {candidates.map((candidate, index) => <li className="card" key={candidate.id ?? `new-${index}`} style={{ padding: 12 }}>
