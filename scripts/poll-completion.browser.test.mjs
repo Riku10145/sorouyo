@@ -100,7 +100,7 @@ test('desktop completion sidebar shows the confirmed event instead of an empty d
     const user = { id: 'host-user', email: 'host@example.test', firstName: '太郎', lastName: '山田' };
     const group = { id: 'friends', name: 'いつメン', color: '#4E8A5A' };
     const candidates = [
-      { id: 'cand-1', date: '2026-11-21', startTime: '19:00' },
+      { id: 'cand-1', date: '2026-11-21', startTime: null },
       { id: 'cand-2', date: '2026-11-22', startTime: '12:00' },
     ];
     const poll = {
@@ -126,7 +126,7 @@ test('desktop completion sidebar shows the confirmed event instead of an empty d
     await page.getByRole('heading', { name: '日程が決まりました', level: 1 }).waitFor();
     const sideDay = page.locator('.side-day');
     await sideDay.getByText('餃子の会').waitFor();
-    assert.match((await sideDay.textContent()) ?? '', /19:00/);
+    assert.match((await sideDay.textContent()) ?? '', /終日/);
   } finally {
     await context.close();
     await browser.close();
