@@ -27,12 +27,14 @@ function NotificationCard() {
   }
   if (!settings) return null;
   const save = async (next: NotificationSettings) => {
+    const previous = settings;
     setSettings(next);
     const ok = await saveNotificationSettings(next);
     if (ok) {
       toast('通知設定を保存しました');
       resetNotificationSchedule();
     } else {
+      setSettings(previous); // 保存できなかったのにオンに見せない
       toast('通知設定を保存できませんでした');
     }
     setPermission(Notification.permission);

@@ -26,22 +26,27 @@ async function showNotification(title: string, options: NotificationOptions): Pr
 
 /** 発射判定と通知本体。設定・予定・許可をその時点で確認し直す。戻り値は通知を出したか */
 export async function fireTodayNotification(now: Date): Promise<boolean> {
-  if (!('Notification' in window) || Notification.permission !== 'granted') return false;
-  const today = dateKey(now);
-  // 別タブのタイマーと同日に重なっても1回だけにする
-  if (localStorage.getItem(FIRED_KEY) === today) return false;
-  const settings = await fetchNotificationSettings();
-  if (!settings?.enabled) return false;
-  // 時刻を変更したあとに古いタイマーが残っていても、新しい通知時刻の前には出さない
-  if (fireAt(now, settings.time).getTime() > now.getTime()) return false;
-  const month = today.slice(0, 7);
-  const events = (await fetchCalendar(month) ?? []).filter(event => event.date === today);
-  // 対象の予定がなければ通知しない。既読にはせず、予定が増えてから開けば届くようにする
-  if (!events.length) return false;
-  // 表示に成功してから既読にする。並行する発射は tag の置き換えで1件にまとまる
-  await showNotification('そろうよ 今日の予定', { body: digestBody(events), tag: `sorouyo-${today}` });
-  notified(today);
-  return true;
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return false;
+    const today = dateKey(now);
+    // 別タブのタイマーと同日に重なっても1回だけにする
+    if (localStorage.getItem(FIRED_KEY) === today) return false;
+    const settings = await fetchNotificationSettings();
+    if (!settings?.enabled) return false;
+    // 時刻を変更したあとに古いタイマーが残っていても、新しい通知時刻の前には出さない
+    if (fireAt(now, settings.time).getTime() > now.getTime()) return false;
+    const month = today.slice(0, 7);
+    const events = (await fetchCalendar(month) ?? []).filter(event => event.date === today);
+    // 対象の予定がなければ通知しない。既読にはせず、予定が増えてから開けば届くようにする
+    if (!events.length) return false;
+    // 表示に成功してから既読にする。並行する発射は tag の置き換えで1件にまとまる
+    await showNotification('そろうよ 今日の予定', { body: digestBody(events), tag: `sorouyo-${today}` });
+    notified(today);
+    return true;
+  } catch {
+    // 通信失敗や通知の拒否では未通知のままにし、次に開いたときの発射に委ねる
+    return false;
+  }
 }
 
 let scheduled = false;
