@@ -641,6 +641,19 @@ describe('data', () => {
     expect(keys).toEqual(['answer-ip:203.0.113.9']);
   });
 
+  test('回答API: IPのフォールバック回数枠は独立したアプリ間で共有しない', async () => {
+    const firstDb = makeDb();
+    const secondDb = makeDb();
+    const firstApp = testApp(firstDb);
+    const secondApp = testApp(secondDb);
+    const bindings = { ANSWER_IP_RATE_LIMIT_PER_MINUTE: '1' };
+    const body = { token: 'bad', name: 'A子', votes: [] };
+
+    expect((await post(firstApp, firstDb, '/api/invite/answer', body, '', bindings)).status).toBe(404);
+    expect((await post(secondApp, secondDb, '/api/invite/answer', body, '', bindings)).status).toBe(404);
+    expect((await post(firstApp, firstDb, '/api/invite/answer', body, '', bindings)).status).toBe(429);
+  });
+
   test('回答API: bindingがない環境ではフォールバック上限を設定できる', async () => {
     const db = makeDb();
     const app = testApp(db);
