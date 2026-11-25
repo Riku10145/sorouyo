@@ -522,7 +522,18 @@ describe('data', () => {
     expect((await legacyDetail.json() as { joinInvite: { expiresAt: string | null; state: string } }).joinInvite)
       .toMatchObject({ state: 'active', expiresAt: expect.any(String) });
 
-    // 期限切れになるとプレビューできず、詳細には期限切れとして出る
+    // 期限なしリンクの効力は発行時刻+7日までで、それを過ぎると期限切れになる
+    const oldCreatedAt = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+    await db.prepare(`UPDATE invites SET created_at = ? WHERE id = ?`).bind(oldCreatedAt, first.invite.id).run();
+    expect((await post(app, db, '/api/groups/join/preview', { token: first.token })).status).toBe(404);
+    const legacyExpiredDetail = await req(app, db, `/api/groups/${group.id}`, { headers: { cookie: host } });
+    expect((await legacyExpiredDetail.json() as { joinInvite: { expiresAt: string; state: string } }).joinInvite)
+      .toMatchObject({
+        expiresAt: new Date(Date.parse(oldCreatedAt) + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        state: 'expired',
+      });
+
+    // 明示した期限切れでもプレビューできず、詳細には期限切れとして出る
     await db.prepare(`UPDATE invites SET expires_at = ? WHERE id = ?`).bind(new Date(Date.now() - 1000).toISOString(), first.invite.id).run();
     expect((await post(app, db, '/api/groups/join/preview', { token: first.token })).status).toBe(404);
     const expiredDetail = await req(app, db, `/api/groups/${group.id}`, { headers: { cookie: host } });
