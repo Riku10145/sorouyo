@@ -68,7 +68,8 @@ function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry
   useLayoutEffect(() => {
     if (!panelScrollRequest || window.innerWidth >= 1024) return;
     // 状態更新後のDOMへ移す。スマホでは選択日の一覧が画面外にありうるため、1タップで全文まで読めるようにする
-    dayPanel.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    dayPanel.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
   }, [panelScrollRequest]);
   const onGridKey = (event: KeyboardEvent<HTMLDivElement>) => {
     const step = ({ ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 } as Record<string, number>)[event.key];
@@ -81,8 +82,8 @@ function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry
     go(dateKey(next));
   };
   const onCellClick = (date: string) => {
-    if (!date.startsWith(month)) restoreCellFocus.current = true;
-    go(date);
+    // タップでは表示中の月を保つ。隣月のセルもその月の一部として選び、内容は下の一覧で確認させる
+    setSelected(date);
     if (window.innerWidth < 1024) setPanelScrollRequest(request => request + 1);
   };
   const focusable = cells.includes(selected) ? selected : cells.find(date => date.startsWith(month));

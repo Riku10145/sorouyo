@@ -54,6 +54,10 @@ test('mobile month tap scrolls to full wrapping event titles with their groups',
     assert.ok(geometry[0].titleHeight > 24, `the long title must wrap instead of truncating: ${JSON.stringify(geometry)}`);
     assert.ok(geometry[0].bottom <= geometry[1].top + 1, `events must not overlap: ${JSON.stringify(geometry)}`);
     for (const item of geometry) assert.ok(item.titleRight <= item.itemRight + 1, `title must stay inside its row: ${JSON.stringify(geometry)}`);
+
+    await page.locator('[data-date="2026-12-01"]').tap();
+    await page.locator('.day-panel').getByText('12月1日', { exact: false }).waitFor();
+    assert.equal(await page.getByRole('grid', { name: '2026年11月のカレンダー' }).count(), 1, 'tapping an adjacent-month cell must keep the viewed month');
   } finally {
     await context.close();
     await browser.close();

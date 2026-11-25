@@ -17,17 +17,22 @@ test('desktop calendar restores date focus across months without moving month-bu
     }));
 
     await page.locator('[data-date="2026-12-01"].outside').click();
-    await page.locator('[data-date="2026-12-01"][aria-selected="true"]:not(.outside)').waitFor();
-    const afterClick = await active();
+    await page.locator('[data-date="2026-12-01"][aria-selected="true"].outside').waitFor();
+    assert.equal(await page.getByRole('grid', { name: '2026年11月のカレンダー' }).count(), 1,
+      'clicking an adjacent-month cell must keep the viewed month');
+
+    await page.locator('[data-date="2026-11-30"]:not(.outside)').click();
+    await page.keyboard.press('ArrowRight');
+    assert.deepEqual(await active(), { focus: '2026-12-01', selected: '2026-12-01' },
+      'ArrowRight into December must move the replacement cell focus');
     await page.keyboard.press('ArrowRight');
     assert.deepEqual(await active(), { focus: '2026-12-02', selected: '2026-12-02' },
-      `ArrowRight must move from the clicked December cell (after click: ${JSON.stringify(afterClick)})`);
-    assert.equal(afterClick.focus, '2026-12-01', 'the replacement December cell must receive focus');
+      'ArrowRight must continue inside December');
 
-    await page.locator('[data-date="2026-11-30"].outside').click();
-    await page.locator('[data-date="2026-11-30"][aria-selected="true"]:not(.outside)').waitFor();
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('ArrowLeft');
     assert.deepEqual(await active(), { focus: '2026-11-30', selected: '2026-11-30' },
-      'the replacement November cell must receive focus');
+      'ArrowLeft back into November must move the replacement cell focus');
 
     for (const [name, month] of [['次の月', 12], ['前の月', 11]]) {
       const button = page.getByRole('button', { name, exact: true });
