@@ -33,10 +33,13 @@ test('host can edit poll candidates with vote-loss confirmation', {
 }, async () => {
   await boot(async (page, origin) => {
     let patchBody = null;
-    const dialogs = [];
-    page.on('dialog', dialog => {
-      dialogs.push(dialog.message());
-      dialog.accept().catch(() => {});
+    await page.addInitScript(() => {
+      window.confirm = message => {
+        const dialogs = JSON.parse(localStorage.getItem('test-dialogs') ?? '[]');
+        dialogs.push(message);
+        localStorage.setItem('test-dialogs', JSON.stringify(dialogs));
+        return true;
+      };
     });
     await page.route(`${origin}/api/polls/poll-a`, route => {
       if (route.request().method() === 'PATCH') {
@@ -56,6 +59,7 @@ test('host can edit poll candidates with vote-loss confirmation', {
     await page.getByRole('button', { name: '変更を保存' }).tap();
     await page.getByRole('heading', { name: '餃子の会', level: 1 }).waitFor();
 
+    const dialogs = await page.evaluate(() => JSON.parse(localStorage.getItem('test-dialogs') ?? '[]'));
     assert.equal(dialogs.length, 2);
     assert.match(dialogs[0], /1件の票/);
     assert.match(dialogs[1], /合計1件の票/);
@@ -73,7 +77,7 @@ test('host can unconfirm a poll and keep the same edit flow available', {
 }, async () => {
   await boot(async (page, origin) => {
     let unconfirmed = false;
-    page.on('dialog', dialog => { dialog.accept().catch(() => {}); });
+    await page.addInitScript(() => { window.confirm = () => true; });
     await page.route(`${origin}/api/polls/poll-a`, route => route.fulfill({ json: { poll: unconfirmed ? poll : { ...poll, status: 'confirmed', confirmedCandidateId: 'cand-1' } } }));
     await page.route(`${origin}/api/polls/poll-a/unconfirm`, route => {
       unconfirmed = true;
@@ -94,7 +98,7 @@ test('member can edit and delete a normal event from its detail', {
     let patchBody = null;
     let deleted = false;
     const event = { id: 'event-1', date: '2026-11-21', startTime: '19:00', title: '夕食', memo: null, group, sourcePollId: null };
-    page.on('dialog', dialog => { dialog.accept().catch(() => {}); });
+    await page.addInitScript(() => { window.confirm = () => true; });
     await page.route(`${origin}/api/events/event-1`, route => {
       if (route.request().method() === 'PATCH') {
         patchBody = route.request().postDataJSON();
