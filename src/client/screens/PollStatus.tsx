@@ -87,7 +87,7 @@ function ReminderCard({ poll, members, linkUrl }: { poll: Poll; members: Reminde
   };
   return <section className="card reminder-card" aria-labelledby="reminder-heading">
     <h2 id="reminder-heading">未回答のメンバーに催促</h2>
-    <p className="note">回答リンク付きの催促文を作ります。回答済みの人は対象に入りません。</p>
+    <p className="note">回答リンク付きの催促文を作ります。{members.length - unanswered.length}人は回答済みのため対象に入りません。</p>
     <ul className="reminder-list">
       {unanswered.map(member => <li key={member.id}>
         <label className="reminder-row">

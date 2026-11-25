@@ -32,6 +32,8 @@ export async function fireTodayNotification(now: Date): Promise<boolean> {
   if (localStorage.getItem(FIRED_KEY) === today) return false;
   const settings = await fetchNotificationSettings();
   if (!settings?.enabled) return false;
+  // 時刻を変更したあとに古いタイマーが残っていても、新しい通知時刻の前には出さない
+  if (fireAt(now, settings.time).getTime() > now.getTime()) return false;
   const month = today.slice(0, 7);
   const events = (await fetchCalendar(month) ?? []).filter(event => event.date === today);
   // 対象の予定がなければ通知しない。既読にはせず、予定が増えてから開けば届くようにする
