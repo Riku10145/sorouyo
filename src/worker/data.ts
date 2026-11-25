@@ -42,8 +42,10 @@ const positiveInt = (value: string | undefined, fallback: number) => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 };
 const fallbackLimit = (key: string, limit: number, at = Date.now()) => {
-  if (fallbackBuckets.size > 1000) {
+  if (fallbackBuckets.size >= 1000) {
     for (const [bucketKey, bucket] of fallbackBuckets) if (bucket.resetAt <= at) fallbackBuckets.delete(bucketKey);
+    // 期限切れだけでは減らない場合も、テスト用フォールバックがメモリを食い続けないよう最古のキーを外す
+    if (fallbackBuckets.size >= 1000) fallbackBuckets.delete(fallbackBuckets.keys().next().value!);
   }
   const bucket = fallbackBuckets.get(key);
   if (!bucket || bucket.resetAt <= at) {
