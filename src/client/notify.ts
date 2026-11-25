@@ -38,9 +38,9 @@ export async function fireTodayNotification(now: Date): Promise<boolean> {
   const events = (await fetchCalendar(month) ?? []).filter(event => event.date === today);
   // 対象の予定がなければ通知しない。既読にはせず、予定が増えてから開けば届くようにする
   if (!events.length) return false;
-  // 通知を出す直前に二重発射を防ぐ。並行する発射は tag の置き換えで1件にまとまる
-  notified(today);
+  // 表示に成功してから既読にする。並行する発射は tag の置き換えで1件にまとまる
   await showNotification('そろうよ 今日の予定', { body: digestBody(events), tag: `sorouyo-${today}` });
+  notified(today);
   return true;
 }
 

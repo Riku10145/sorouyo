@@ -318,7 +318,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
             <strong>{dateLabel(item.date)}</strong><span className="num">{timeLabel(item.time)}</span>{index === confirmed && <span className="chip-soft">確定</span>}{index === chosen && <span className="chip-soft">選択中</span>}
           </button></th>)}</tr></thead>
         <tbody>{displayAnswers.map(answer => <tr key={answer.id ?? (answer === you ? 'you' : answer.name)} className={answer === you ? 'you' : ''}>
-          <th scope="row">{answer.name}{answer === you && '（あなた）'}{answer.comment?.trim() && <span className="matrix-comment">{answer.comment}</span>}</th>
+          <th scope="row">{answer.name}{answer === you && '（あなた）'}{answer.comment?.trim() && <span className="matrix-comment">{answer.comment.trim()}</span>}</th>
           {poll.candidates.map((item, index) => <td key={item.id ?? item.date}><VoteMark vote={answer.votes[index] ?? null} withLabel /></td>)}
         </tr>)}</tbody>
       </table>
@@ -331,7 +331,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
       <h2>ひとこと</h2>
       <ul className="comment-list">
         {poll.answers.filter(answer => answered(answer) && answer.comment?.trim()).map(answer =>
-          <li key={answer.id ?? answer.name}><strong>{answer.name}</strong><span>{answer.comment}</span></li>)}
+          <li key={answer.id ?? answer.name}><strong>{answer.name}</strong><span>{answer.comment!.trim()}</span></li>)}
       </ul>
     </section>}
 

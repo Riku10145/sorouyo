@@ -181,6 +181,7 @@ const answerBody = z.object({
   votes: z.array(z.object({ candidateId: z.string().min(1), value: voteSchema })).max(50),
 });
 const confirmBody = z.object({ candidateId: z.string().min(1) });
+const notificationSettingsBody = z.object({ enabled: z.boolean(), time: timeSchema });
 const eventBody = z.object({
   date: z.iso.date(), time: timeSchema.nullish(), title: z.string().trim().min(1).max(60),
 });
@@ -632,7 +633,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
   })
 
   // 通知設定の保存（本人のみ）。冪等なupsertで、時刻はHH:MMに検証済み
-  .put('/settings/notifications', json(z.object({ enabled: z.boolean(), time: timeSchema })), async (c) => {
+  .put('/settings/notifications', json(notificationSettingsBody), async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const subject = await subjectOf(c);
     if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
