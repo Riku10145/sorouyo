@@ -80,7 +80,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
   const confirmedIndex = remote.confirmedCandidateId
     ? remote.candidates.findIndex(c => c.id === remote.confirmedCandidateId) : null;
   const poll: Poll = {
-    token: '',
+    token: remote.id,
     title: remote.title,
     group: { name: remote.group.name, color: remote.group.color ?? undefined },
     host: remote.hostName ?? '幹事',
@@ -128,7 +128,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   const best = bestCandidate(poll);
   const [chosen, setChosen] = useState(best);
   const [confirmed, setConfirmed] = useState<number | null>(poll.confirmedIndex ?? null);
-  const [completion, setCompletion] = useState<number | null>(null);
+  const [completion, setCompletion] = useState<{ pollToken: string; index: number } | null>(null);
   const chosenCard = useRef<HTMLElement>(null);
   const picked = useRef(false);
   useEffect(() => { if (picked.current) { picked.current = false; chosenCard.current?.focus(); } }, [chosen]);
@@ -173,7 +173,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
     finally { confirming.current = false; }
     if (done) {
       setConfirmed(chosen);
-      setCompletion(chosen);
+      setCompletion({ pollToken: poll.token, index: chosen });
     } else toast('確定できませんでした。すでに別の日に確定している可能性があります');
   };
   const expiredBanner = expired && confirmed === null && <p className="expired-note" role="status">
@@ -184,13 +184,13 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   const deadline = deadlineText(poll);
 
   const group: DisplayGroup = { id: poll.token || poll.title, name: poll.group.name, color: poll.group.color ?? null, className: poll.group.className };
-  if (completion !== null) {
+  if (completion?.pollToken === poll.token) {
     // 完了画面はこの調整を確定した表示中だけに出す。再訪・別の調整では状態が残らない
     return <AppShell active="polls" selectedDate={selectedDate} groups={[group]} subpage>
       <div className="m-only m-back">
         <a className="text-btn" href="/polls"><Icon name="chevronLeft" size={20} />日程調整</a>
       </div>
-      <ConfirmComplete poll={poll} index={completion} />
+      <ConfirmComplete poll={poll} index={completion.index} />
     </AppShell>;
   }
   return <AppShell active="polls" selectedDate={selectedDate} groups={[group]} subpage>

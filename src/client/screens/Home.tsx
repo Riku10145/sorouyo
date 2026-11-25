@@ -59,11 +59,17 @@ function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry
   const grid = useRef<HTMLDivElement>(null);
   const dayPanel = useRef<HTMLElement>(null);
   const restoreCellFocus = useRef(false);
+  const [panelScrollRequest, setPanelScrollRequest] = useState(0);
   useLayoutEffect(() => {
     if (!restoreCellFocus.current) return;
     restoreCellFocus.current = false;
     grid.current?.querySelector<HTMLElement>(`[data-date="${selected}"]`)?.focus();
   }, [selected]);
+  useLayoutEffect(() => {
+    if (!panelScrollRequest || window.innerWidth >= 1024) return;
+    // 状態更新後のDOMへ移す。スマホでは選択日の一覧が画面外にありうるため、1タップで全文まで読めるようにする
+    dayPanel.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [panelScrollRequest]);
   const onGridKey = (event: KeyboardEvent<HTMLDivElement>) => {
     const step = ({ ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 } as Record<string, number>)[event.key];
     if (!step) return;
@@ -77,10 +83,7 @@ function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry
   const onCellClick = (date: string) => {
     if (!date.startsWith(month)) restoreCellFocus.current = true;
     go(date);
-    if (window.innerWidth < 1024) {
-      // スマホでは選択日の一覧が画面外にありうる。1タップで全文まで読めるようパネルへ移す
-      requestAnimationFrame(() => dayPanel.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-    }
+    if (window.innerWidth < 1024) setPanelScrollRequest(request => request + 1);
   };
   const focusable = cells.includes(selected) ? selected : cells.find(date => date.startsWith(month));
   const add = (trigger: HTMLButtonElement) => onAdd ? onAdd(selected, trigger) : notReady('予定の追加');
