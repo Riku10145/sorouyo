@@ -202,7 +202,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
     // 完了画面はこの調整を確定した表示中だけに出す。再訪・別の調整では状態が残らない
     const completed = poll.candidates[completion.index]!;
     const completedEvent = { title: poll.title, time: completed.time, group };
-    return <AppShell active="polls" selectedDate={completed.date} groups={[group]} dayEvents={[completedEvent]} subpage>
+    return <AppShell active="polls" selectedDate={completed.date} groups={[group]} dayEvents={onConfirm ? [completedEvent] : []} subpage>
       <div className="m-only m-back">
         <a className="text-btn" href="/polls"><Icon name="chevronLeft" size={20} />日程調整</a>
       </div>
