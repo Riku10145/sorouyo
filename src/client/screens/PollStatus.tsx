@@ -64,7 +64,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
   }, [id]);
   // hooks は早期returnより前に置く。Promise を保持して同時コピーの重複発行も防ぐ
   const issuedLink = useRef<Promise<string> | null>(null);
-  if (result === 'loading') return null;
+  if (result === 'loading' || me === undefined) return null;
   if (!result.poll) {
     const login = result.status === 401;
     return <AppShell active="polls" selectedDate={selectedDate} groups={[]} subpage>
