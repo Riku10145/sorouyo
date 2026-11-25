@@ -214,3 +214,22 @@ test('members without tally permission see only their own answer state', {
     await browser.close();
   }
 });
+
+test('a login-required poll appears without waiting for viewer identity', {
+  skip: process.env.BROWSER_TEST !== '1' && 'BROWSER_TEST=1 が必要（npm run test:browser）',
+}, async () => {
+  const browser = await chromium.connectOverCDP(process.env.CDP_URL ?? 'http://localhost:29229');
+  const context = await browser.newContext({ viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true });
+  try {
+    const page = await context.newPage();
+    const origin = new URL(process.env.APP_URL ?? 'http://localhost:5173').origin;
+    await page.route(`${origin}/api/auth/me`, () => new Promise(() => {}));
+    await page.route(`${origin}/api/polls/gated`, route => route.fulfill({ status: 401, json: { error: 'unauthorized' } }));
+    await page.goto(`${origin}/polls/gated`);
+    await page.getByRole('heading', { name: 'ログインが必要です' }).waitFor();
+    await page.getByRole('link', { name: 'ログイン' }).waitFor();
+  } finally {
+    await context.close();
+    await browser.close();
+  }
+});
