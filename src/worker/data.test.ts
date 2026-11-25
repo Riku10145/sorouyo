@@ -641,6 +641,17 @@ describe('data', () => {
     expect(keys).toEqual(['answer-ip:203.0.113.9']);
   });
 
+  test('回答API: 不正な本文の送信もIPの回数枠を使う', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const bindings = { ANSWER_IP_RATE_LIMIT_PER_MINUTE: '1' };
+
+    expect((await post(app, db, '/api/invite/answer', {}, '', bindings)).status).toBe(400);
+    const limited = await post(app, db, '/api/invite/answer', { token: 'bad', name: 'A子', votes: [] }, '', bindings);
+    expect(limited.status).toBe(429);
+    expect((await limited.json() as { message: string }).message).toBe('少し時間をおいてもう一度お試しください');
+  });
+
   test('回答API: IPのフォールバック回数枠は独立したアプリ間で共有しない', async () => {
     const firstDb = makeDb();
     const secondDb = makeDb();
