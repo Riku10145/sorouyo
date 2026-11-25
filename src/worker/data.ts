@@ -60,7 +60,9 @@ const limitAnswer = async (
   ? (await binding.limit({ key })).success
   : fallbackLimit(key, positiveInt(configuredLimit, fallbackDefault));
 
-const clientIp = (c: C) => c.req.header('cf-connecting-ip')?.trim() || undefined;
+// 本番ではCloudflareが付けるIPを使う。ローカル/テストではヘッダが無いことがあるため、
+// フォールバック制限が効くよう同一の未知送信元として扱う。
+const clientIp = (c: C) => c.req.header('cf-connecting-ip')?.trim() || 'unknown';
 
 // --- DB行 -------------------------------------------------------------------
 
@@ -691,7 +693,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const body = { data: c.req.valid('json') };
     const ip = clientIp(c);
-    if (ip && !await limitAnswer(
+    if (!await limitAnswer(
       c.env.ANSWER_IP_RATE_LIMIT, `answer-ip:${ip}`, c.env.ANSWER_IP_RATE_LIMIT_PER_MINUTE, 60,
     )) return rateLimited(c);
     const invite = await findInvite(c, body.data.token);
