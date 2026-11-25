@@ -109,7 +109,7 @@ export interface GroupDetail {
   counts: { events: number; polls: number; members: number };
 }
 export interface CalEvent {
-  id: string; date: string; startTime: string | null; title: string;
+  id: string; date: string; startTime: string | null; title: string; memo: string | null;
   group: { id: string; name: string; color: string | null };
   sourcePollId: string | null;
 }
@@ -188,6 +188,37 @@ export async function fetchEvent(id: string): Promise<{ status: number; event?: 
   const response = await api.api.events[':id'].$get({ param: { id } });
   if (!response.ok) return { status: response.status };
   return { status: 200, event: (await response.json()).event as CalEvent };
+}
+
+export async function updateEvent(
+  id: string,
+  body: { date: string; title: string; time?: string | null; memo?: string | null },
+): Promise<boolean> {
+  const response = await api.api.events[':id'].$patch({ param: { id }, json: body });
+  return response.ok;
+}
+
+export async function deleteEvent(id: string): Promise<boolean> {
+  const response = await api.api.events[':id'].$delete({ param: { id } });
+  return response.ok;
+}
+
+export async function updatePoll(
+  id: string,
+  body: { title: string; deadlineAt?: string | null; candidates: { id?: string; date: string; time?: string | null }[] },
+): Promise<boolean> {
+  const response = await api.api.polls[':id'].$patch({ param: { id }, json: body });
+  return response.ok;
+}
+
+export async function deletePoll(id: string): Promise<boolean> {
+  const response = await api.api.polls[':id'].$delete({ param: { id } });
+  return response.ok;
+}
+
+export async function unconfirmPoll(id: string): Promise<boolean> {
+  const response = await api.api.polls[':id'].unconfirm.$post({ param: { id } });
+  return response.ok;
 }
 
 /** UTCのISOを画面表示用の日本時間に変換する。 */

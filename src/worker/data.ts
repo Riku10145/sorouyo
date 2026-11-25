@@ -45,7 +45,7 @@ interface AnswerRow {
 interface VoteRow { answer_id: string; candidate_id: string; value: 'yes' | 'maybe' | 'no' }
 interface EventRow {
   id: string; group_id: string; date: string; start_time: string | null;
-  title: string; source_poll_id: string | null; created_at: string;
+  title: string; memo: string | null; source_poll_id: string | null; created_at: string;
 }
 interface InviteRow {
   id: string; purpose: 'answer' | 'join'; poll_id: string | null; group_id: string | null;
@@ -182,7 +182,13 @@ const answerBody = z.object({
 });
 const confirmBody = z.object({ candidateId: z.string().min(1) });
 const eventBody = z.object({
-  date: z.iso.date(), time: timeSchema.nullish(), title: z.string().trim().min(1).max(60),
+  date: z.iso.date(), time: timeSchema.nullish(), title: z.string().trim().min(1).max(60), memo: z.string().trim().max(500).nullish(),
+});
+const candidateInput = z.object({ id: z.string().min(1).optional(), date: z.iso.date(), time: timeSchema.nullish() });
+const updatePollBody = z.object({
+  title: z.string().trim().min(1).max(60),
+  deadlineAt: z.iso.datetime().nullish(),
+  candidates: z.array(candidateInput).min(1).max(31),
 });
 const monthQuery = /^\d{4}-\d{2}$/;
 
@@ -369,11 +375,43 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!(await memberRole(c, event.group_id, subject.userId))) return c.json({ error: 'forbidden' } as const, 403);
     return c.json({
       event: {
-        id: event.id, date: event.date, startTime: event.start_time, title: event.title,
+        id: event.id, date: event.date, startTime: event.start_time, title: event.title, memo: event.memo,
         group: { id: event.group_id, name: event.group_name, color: event.group_color },
         sourcePollId: event.source_poll_id,
       },
     } as const);
+  })
+
+  // 予定の編集（所属メンバー）。調整から作られた予定はタイトルとメモだけ直接編集できる
+  .patch('/events/:id', json(eventBody), async (c) => {
+    if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
+    const subject = await subjectOf(c);
+    if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
+    const event = await get<EventRow>(c.env.DB.prepare(`SELECT * FROM events WHERE id = ?`).bind(c.req.param('id')).first());
+    if (!event) return c.json({ error: 'not_found' } as const, 404);
+    if (!(await memberRole(c, event.group_id, subject.userId))) return c.json({ error: 'forbidden' } as const, 403);
+    const body = { data: c.req.valid('json') };
+    const sourced = event.source_poll_id !== null;
+    const date = sourced ? event.date : body.data.date;
+    const time = sourced ? event.start_time : body.data.time ?? null;
+    const result = await c.env.DB.prepare(
+      `UPDATE events SET title = ?, memo = ?, date = ?, start_time = ? WHERE id = ?`
+    ).bind(body.data.title, body.data.memo ?? null, date, time, event.id).run();
+    if (!result.meta.changes) return c.json({ error: 'not_found' } as const, 404);
+    return c.json({ event: { id: event.id } } as const);
+  })
+
+  // 通常予定の削除（所属メンバー）。調整から作られた予定は確定取消で消す
+  .delete('/events/:id', async (c) => {
+    if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
+    const subject = await subjectOf(c);
+    if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
+    const event = await get<EventRow>(c.env.DB.prepare(`SELECT * FROM events WHERE id = ?`).bind(c.req.param('id')).first());
+    if (!event) return c.json({ error: 'not_found' } as const, 404);
+    if (!(await memberRole(c, event.group_id, subject.userId))) return c.json({ error: 'forbidden' } as const, 403);
+    if (event.source_poll_id) return c.json({ error: 'poll_event' } as const, 409);
+    await c.env.DB.prepare(`DELETE FROM events WHERE id = ?`).bind(event.id).run();
+    return c.body(null, 204);
   })
 
   // 調整の作成（メンバー以上）。回答リンクを発行し、トークンはこのレスポンスにだけ含める
@@ -499,6 +537,71 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     } as const);
   })
 
+  // 受付中の調整の編集（作成者のみ）。候補の日時変更は削除＋追加扱いで、その候補の票だけ消す
+  .patch('/polls/:id', json(updatePollBody), async (c) => {
+    if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
+    const subject = await subjectOf(c);
+    if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
+    const poll = await get<PollRow>(c.env.DB.prepare(`SELECT * FROM polls WHERE id = ?`).bind(c.req.param('id')).first());
+    if (!poll) return c.json({ error: 'not_found' } as const, 404);
+    const target = await pollTarget(c, poll, false);
+    if (!can(subject, 'editPoll', target)) return c.json({ error: 'forbidden' } as const, 403);
+    if (poll.status !== 'open') return c.json({ error: 'already_confirmed' } as const, 409);
+    const body = { data: c.req.valid('json') };
+    const current = await all<CandidateRow>(c.env.DB.prepare(`SELECT * FROM candidates WHERE poll_id = ? ORDER BY position`).bind(poll.id).all());
+    const currentById = new Map(current.map(row => [row.id, row]));
+    const used = new Set<string>();
+    const rows = body.data.candidates.map((input, index) => {
+      const existing = input.id && !used.has(input.id) ? currentById.get(input.id) : undefined;
+      const unchanged = existing && existing.date === input.date && (existing.start_time ?? null) === (input.time ?? null);
+      const id = unchanged ? existing.id : crypto.randomUUID();
+      used.add(id);
+      return { id, position: index, date: input.date, time: input.time ?? null, unchanged: !!unchanged };
+    });
+    if (new Set(rows.map(row => `${row.date}\0${row.time ?? ''}`)).size !== rows.length) {
+      return c.json({ error: 'invalid_body' } as const, 400);
+    }
+    const kept = new Set(rows.filter(row => row.unchanged).map(row => row.id));
+    const removed = current.filter(row => !kept.has(row.id)).map(row => row.id);
+    const stmts = [
+      c.env.DB.prepare(`UPDATE polls SET title = ?, deadline_at = ? WHERE id = ? AND status = 'open'`)
+        .bind(body.data.title, body.data.deadlineAt ? new Date(body.data.deadlineAt).toISOString() : null, poll.id),
+      // UNIQUE(poll_id, position) の即時制約を避けるため、再配置の間は既存候補を一時的に大きな位置へ退避する
+      ...current.map(row => c.env.DB.prepare(`UPDATE candidates SET position = ? WHERE id = ?`).bind(row.position + 1000, row.id)),
+      ...removed.map(id => c.env.DB.prepare(`DELETE FROM votes WHERE candidate_id = ?`).bind(id)),
+      ...removed.map(id => c.env.DB.prepare(`DELETE FROM candidates WHERE id = ?`).bind(id)),
+      ...rows.filter(row => !row.unchanged).map(row => c.env.DB.prepare(`INSERT INTO candidates (id, poll_id, position, date, start_time) VALUES (?, ?, ?, ?, ?)`)
+        .bind(row.id, poll.id, row.position, row.date, row.time)),
+      ...rows.filter(row => row.unchanged).map(row => c.env.DB.prepare(`UPDATE candidates SET position = ? WHERE id = ?`)
+        .bind(row.position, row.id)),
+    ];
+    const results = await c.env.DB.batch(stmts);
+    if (!results[0]!.meta.changes) return c.json({ error: 'already_confirmed' } as const, 409);
+    return c.json({ poll: { id: poll.id, status: 'open' } } as const);
+  })
+
+  // 受付中の調整の削除（作成者のみ）。確定済みは先に確定取消を求める
+  .delete('/polls/:id', async (c) => {
+    if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
+    const subject = await subjectOf(c);
+    if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
+    const poll = await get<PollRow>(c.env.DB.prepare(`SELECT * FROM polls WHERE id = ?`).bind(c.req.param('id')).first());
+    if (!poll) return c.json({ error: 'not_found' } as const, 404);
+    const target = await pollTarget(c, poll, false);
+    if (!can(subject, 'editPoll', target)) return c.json({ error: 'forbidden' } as const, 403);
+    if (poll.status !== 'open') return c.json({ error: 'already_confirmed' } as const, 409);
+    const inAnswers = `SELECT id FROM answers WHERE poll_id = ?`;
+    await c.env.DB.batch([
+      c.env.DB.prepare(`DELETE FROM votes WHERE answer_id IN (${inAnswers}) OR candidate_id IN (SELECT id FROM candidates WHERE poll_id = ?)`).bind(poll.id, poll.id),
+      c.env.DB.prepare(`DELETE FROM answers WHERE poll_id = ?`).bind(poll.id),
+      c.env.DB.prepare(`DELETE FROM candidates WHERE poll_id = ?`).bind(poll.id),
+      c.env.DB.prepare(`DELETE FROM invites WHERE poll_id = ?`).bind(poll.id),
+      c.env.DB.prepare(`DELETE FROM events WHERE source_poll_id = ?`).bind(poll.id),
+      c.env.DB.prepare(`DELETE FROM polls WHERE id = ?`).bind(poll.id),
+    ]);
+    return c.body(null, 204);
+  })
+
   // 候補日の確定（作成者のみ）。未確定からの条件付き更新と予定の生成を同一バッチで行う
   .post('/polls/:id/confirm', json(confirmBody), async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
@@ -575,8 +678,8 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const body = { data: c.req.valid('json') };
     const id = crypto.randomUUID();
     await c.env.DB.prepare(
-      `INSERT INTO events (id, group_id, date, start_time, title, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-    ).bind(id, groupId, body.data.date, body.data.time ?? null, body.data.title, now()).run();
+      `INSERT INTO events (id, group_id, date, start_time, title, memo, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, groupId, body.data.date, body.data.time ?? null, body.data.title, body.data.memo ?? null, now()).run();
     return c.json({ event: { id } } as const, 201);
   })
 
@@ -595,7 +698,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     ).bind(subject.userId, `${month}-01`, `${month}-32`).all());
     return c.json({
       events: events.map(e => ({
-        id: e.id, date: e.date, startTime: e.start_time, title: e.title,
+        id: e.id, date: e.date, startTime: e.start_time, title: e.title, memo: e.memo,
         group: { id: e.group_id, name: e.group_name, color: e.group_color },
         sourcePollId: e.source_poll_id,
       })),
