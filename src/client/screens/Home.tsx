@@ -30,8 +30,8 @@ function Pill({ event, long = false }: { event: ViewEvent; long?: boolean }) {
 
 function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry, onMonthChange, onAdd, dayLink }: {
   today: string; initialDate: string; groups: DisplayGroup[]; events: ViewEvent[];
-  monthStatus?: MonthLoad['status'];
-  onRetry?: () => void;
+  monthStatus?: (month: string) => MonthLoad['status'];
+  onRetry?: (month: string) => void;
   onMonthChange?: (month: string) => void;
   onAdd?: (date: string, trigger: HTMLButtonElement) => void;
   dayLink?: (event: ViewEvent) => string | null;
@@ -45,10 +45,12 @@ function CalendarView({ today, initialDate, groups, events, monthStatus, onRetry
   const [year, monthNumber] = month.split('-').map(Number) as [number, number];
   const Art = monthArt[monthNumber - 1]!;
   const dayEvents = eventsOn(selected);
-  const dayNotice = monthStatus === 'error' ? <div className="day-load-error">
+  const selectedMonth = selected.slice(0, 7);
+  const selectedMonthStatus = monthStatus?.(selectedMonth);
+  const dayNotice = selectedMonthStatus === 'error' ? <div className="day-load-error">
     <div className="form-error" role="alert">予定を読み込めませんでした。</div>
-    {onRetry && <button type="button" className="ghost-btn" onClick={onRetry}>再試行</button>}
-  </div> : monthStatus === 'loading' ? <p className="empty" role="status">予定を読み込み中…</p> : null;
+    {onRetry && <button type="button" className="ghost-btn" onClick={() => onRetry(selectedMonth)}>再試行</button>}
+  </div> : selectedMonthStatus === 'loading' ? <p className="empty" role="status">予定を読み込み中…</p> : null;
   const toggle = (group: string) => setVisible(current => {
     const next = new Set(current);
     if (next.has(group)) next.delete(group); else next.add(group);
@@ -294,8 +296,8 @@ function RemoteHome({ today, initialDate }: { today: string; initialDate: string
       today={today} initialDate={initialDate}
       groups={displayGroups}
       events={[...months.values()].flatMap(load => load.status === 'loaded' ? load.events : [])}
-      monthStatus={months.get(viewMonth)?.status ?? 'loading'}
-      onRetry={() => void loadMonth(viewMonth, true)}
+      monthStatus={month => months.get(month)?.status ?? 'loading'}
+      onRetry={month => void loadMonth(month, true)}
       onMonthChange={month => {
         setViewMonth(month);
         void loadMonth(shiftedMonth(month, -1));
