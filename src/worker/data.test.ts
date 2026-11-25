@@ -515,6 +515,13 @@ describe('data', () => {
     expect(ttlMs).toBeGreaterThan(6.9 * 24 * 60 * 60 * 1000);
     expect(ttlMs).toBeLessThanOrEqual(7 * 24 * 60 * 60 * 1000);
 
+    // 移行後に旧Workerが発行した期限なしリンクも、発行時刻から7日間は使える
+    await db.prepare(`UPDATE invites SET expires_at = NULL WHERE id = ?`).bind(first.invite.id).run();
+    expect((await post(app, db, '/api/groups/join/preview', { token: first.token })).status).toBe(200);
+    const legacyDetail = await req(app, db, `/api/groups/${group.id}`, { headers: { cookie: host } });
+    expect((await legacyDetail.json() as { joinInvite: { expiresAt: string | null; state: string } }).joinInvite)
+      .toMatchObject({ state: 'active', expiresAt: expect.any(String) });
+
     // 期限切れになるとプレビューできず、詳細には期限切れとして出る
     await db.prepare(`UPDATE invites SET expires_at = ? WHERE id = ?`).bind(new Date(Date.now() - 1000).toISOString(), first.invite.id).run();
     expect((await post(app, db, '/api/groups/join/preview', { token: first.token })).status).toBe(404);

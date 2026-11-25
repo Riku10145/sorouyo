@@ -103,14 +103,22 @@ const memberRole = async (c: C, groupId: string, userId: string) =>
     `SELECT role FROM memberships WHERE group_id = ? AND user_id = ?`
   ).bind(groupId, userId).first()))?.role;
 
+const JOIN_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** 期限列がない参加リンクは、移行後も旧Workerで発行されたものとして発行時刻から7日後を期限に使う。 */
+const joinInviteExpiresAt = (invite: Pick<InviteRow, 'created_at' | 'expires_at'>) =>
+  invite.expires_at ?? new Date(Date.parse(invite.created_at) + JOIN_INVITE_TTL_MS).toISOString();
+
 const findInvite = async (c: C, token: string) => {
   const hash = await sha256(token);
   const invite = await get<InviteRow>(c.env.DB.prepare(
     `SELECT id, purpose, poll_id, group_id, token_hash, expires_at, revoked_at, created_by, created_at FROM invites WHERE token_hash = ?`
   ).bind(hash).first());
   if (!invite || invite.revoked_at) return undefined;
-  // 参加リンクに期限が無いデータは恒久リンクになるため、安全側に期限切れとして扱う
-  if (invite.purpose === 'join' ? !invite.expires_at || invite.expires_at <= now() : invite.expires_at && invite.expires_at <= now()) return undefined;
+  const expired = invite.purpose === 'join'
+    ? joinInviteExpiresAt(invite) <= now()
+    : invite.expires_at && invite.expires_at <= now();
+  if (expired) return undefined;
   return invite;
 };
 
@@ -122,18 +130,16 @@ const newAnswerInvite = async (c: C, pollId: string, createdBy?: string) => {
   return token;
 };
 
-const JOIN_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
-const joinInviteState = (invite: Pick<InviteRow, 'expires_at' | 'revoked_at'>, at = now()) => {
+const joinInviteState = (invite: Pick<InviteRow, 'created_at' | 'expires_at' | 'revoked_at'>, at = now()) => {
   if (invite.revoked_at) return 'revoked' as const;
-  if (!invite.expires_at || invite.expires_at <= at) return 'expired' as const;
+  if (joinInviteExpiresAt(invite) <= at) return 'expired' as const;
   return 'active' as const;
 };
 
 const presentJoinInvite = (invite: InviteRow) => ({
   id: invite.id,
   createdAt: invite.created_at,
-  expiresAt: invite.expires_at,
+  expiresAt: joinInviteExpiresAt(invite),
   state: joinInviteState(invite),
 } as const);
 
