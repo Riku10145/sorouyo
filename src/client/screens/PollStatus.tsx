@@ -80,7 +80,8 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
   const confirmedIndex = remote.confirmedCandidateId
     ? remote.candidates.findIndex(c => c.id === remote.confirmedCandidateId) : null;
   const poll: Poll = {
-    token: remote.id,
+    id: remote.id,
+    token: '',
     title: remote.title,
     group: { name: remote.group.name, color: remote.group.color ?? undefined },
     host: remote.hostName ?? '幹事',
@@ -128,7 +129,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   const best = bestCandidate(poll);
   const [chosen, setChosen] = useState(best);
   const [confirmed, setConfirmed] = useState<number | null>(poll.confirmedIndex ?? null);
-  const [completion, setCompletion] = useState<{ pollToken: string; index: number } | null>(null);
+  const [completion, setCompletion] = useState<{ pollKey: string; index: number } | null>(null);
   const chosenCard = useRef<HTMLElement>(null);
   const picked = useRef(false);
   useEffect(() => { if (picked.current) { picked.current = false; chosenCard.current?.focus(); } }, [chosen]);
@@ -138,6 +139,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   const you = savedYou ?? { name: viewerName ?? 'あなた', votes: poll.candidates.map(() => null), own: true };
   const others = poll.answers.filter(answer => answer !== savedYou);
   const displayAnswers = savedYou ? poll.answers : [...poll.answers, you];
+  const pollKey = poll.id ?? poll.token;
   const respondents = poll.answers.filter(answered).length;
   const candidate = poll.candidates[chosen]!;
   const confirmLabel = `${dateLabel(candidate.date).replace('（', '(').replace('）', ')')}に確定する`;
@@ -173,7 +175,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
     finally { confirming.current = false; }
     if (done) {
       setConfirmed(chosen);
-      setCompletion({ pollToken: poll.token, index: chosen });
+      setCompletion({ pollKey, index: chosen });
     } else toast('確定できませんでした。すでに別の日に確定している可能性があります');
   };
   const expiredBanner = expired && confirmed === null && <p className="expired-note" role="status">
@@ -184,7 +186,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   const deadline = deadlineText(poll);
 
   const group: DisplayGroup = { id: poll.token || poll.title, name: poll.group.name, color: poll.group.color ?? null, className: poll.group.className };
-  if (completion?.pollToken === poll.token) {
+  if (completion?.pollKey === pollKey) {
     // 完了画面はこの調整を確定した表示中だけに出す。再訪・別の調整では状態が残らない
     return <AppShell active="polls" selectedDate={selectedDate} groups={[group]} subpage>
       <div className="m-only m-back">

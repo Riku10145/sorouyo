@@ -38,6 +38,8 @@ export const SAMPLE_EVENTS: readonly CalendarEvent[] = [
 export type PollGroup = { name: string; className?: GroupId; color?: string };
 export type Candidate = { id?: string; date: string; time: string };
 export type Poll = {
+  /** 実データの日程調整ID。完了画面など表示中の状態をどの調整に紐づけるかに使う */
+  id?: string;
   token: string;
   title: string;
   group: PollGroup;
