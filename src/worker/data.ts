@@ -492,18 +492,20 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     } as const);
   })
 
-  // 調整の取得（メンバー以上）。ゲストの回答リンクではこの形は返さない
+  // 調整の取得（メンバー以上）。ゲストの回答リンクではこの形は返さない。確定候補と予定IDは1つの読み取りで取り、再確定の途中でずれないようにする
   .get('/polls/:id', async (c) => {
     const subject = await subjectOf(c);
     // 未ログインは401としてクライアントにログイン導線を出させる（ゲストは回答リンク経由のみ）
     if (!subject.userId) return c.json({ error: 'unauthorized' } as const, 401);
-    const poll = await get<PollRow>(c.env.DB.prepare(`SELECT * FROM polls WHERE id = ?`).bind(c.req.param('id')).first());
+    const poll = await get<PollRow & { confirmed_event_id: string | null }>(c.env.DB.prepare(
+      `SELECT p.*, (SELECT e.id FROM events e WHERE e.source_poll_id = p.id) AS confirmed_event_id FROM polls p WHERE p.id = ?`
+    ).bind(c.req.param('id')).first());
     if (!poll) return c.json({ error: 'not_found' } as const, 404);
     const target = await pollTarget(c, poll, false);
     if (!can(subject, 'viewTally', target) && !can(subject, 'viewPoll', target)) {
       return c.json({ error: 'forbidden' } as const, 403);
     }
-    const [group, candidates, answers, votes, host, confirmedEvent] = await Promise.all([
+    const [group, candidates, answers, votes, host] = await Promise.all([
       get<GroupRow>(c.env.DB.prepare(`SELECT id, name, color FROM groups WHERE id = ?`).bind(poll.group_id).first()),
       all<CandidateRow>(c.env.DB.prepare(`SELECT * FROM candidates WHERE poll_id = ? ORDER BY position`).bind(poll.id).all()),
       all<AnswerRow>(c.env.DB.prepare(`SELECT * FROM answers WHERE poll_id = ? ORDER BY created_at`).bind(poll.id).all()),
@@ -511,9 +513,6 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
         `SELECT v.*, a.respondent_key FROM votes v JOIN answers a ON a.id = v.answer_id WHERE a.poll_id = ?`
       ).bind(poll.id).all()),
       get<{ display_name: string | null }>(c.env.DB.prepare(`SELECT display_name FROM users WHERE id = ?`).bind(poll.creator_id).first()),
-      poll.confirmed_candidate_id
-        ? get<{ id: string }>(c.env.DB.prepare(`SELECT id FROM events WHERE source_poll_id = ?`).bind(poll.id).first())
-        : Promise.resolve(null),
     ]);
     const votesBy = new Map<string, Record<string, string>>();
     for (const v of votes) {
@@ -530,7 +529,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
         status: poll.status,
         deadlineAt: poll.deadline_at,
         confirmedCandidateId: poll.confirmed_candidate_id,
-        confirmedEventId: confirmedEvent?.id ?? null,
+        confirmedEventId: poll.confirmed_event_id,
         editVersion: poll.edit_version,
         reopenPending: poll.reopen_pending === 1,
         group: group!,
@@ -836,9 +835,9 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const stale = body.data.votes.some(v => !validIds.has(v.candidateId));
     const seen = new Set<string>();
     const votes = body.data.votes.filter(v => validIds.has(v.candidateId) && !seen.has(v.candidateId) && (seen.add(v.candidateId), true));
-    if (!votes.length) return c.json({ error: 'invalid_body' } as const, 400);
     // 編集で消えた候補を混ぜた古いフォームの送信は、残った候補だけを受理済みに見せず競合として返す
     if (stale) return c.json({ error: 'stale_candidates' } as const, 409);
+    if (!votes.length) return c.json({ error: 'invalid_body' } as const, 400);
 
     // 締切・確定済みの調整には、既存回答があっても新しい送信を受け付けない
     const accepting = poll.status === 'open' && !poll.reopen_pending && (!poll.deadline_at || new Date(poll.deadline_at).getTime() > Date.now());

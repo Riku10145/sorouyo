@@ -100,6 +100,7 @@ export function PollEdit({ id, selectedDate }: { id: string; selectedDate: strin
     if (busy) return;
     if (!title.trim()) { setError('予定名を入力してください'); return; }
     if (!candidates.length || candidates.some(c => !c.date)) { setError('候補日を1つ以上入力してください'); return; }
+    if (candidates.length > 31) { setError('候補日は31件までです'); return; }
     if (reopen && !deadline) { setError('再調整を始めるには新しい回答締切を設定してください'); return; }
     if (new Set(candidates.map(c => `${c.date}\0${c.time ?? ''}`)).size !== candidates.length) {
       setError('同じ日時の候補が重複しています'); return;
@@ -150,7 +151,7 @@ export function PollEdit({ id, selectedDate }: { id: string; selectedDate: strin
         </label>
       </section>
       <section className="card form-card">
-        <div className="section-head"><h2>候補日</h2><button type="button" className="text-btn" onClick={() => setCandidates(current => [...current, { date: '', time: null }])}><Icon name="plus" size={18} />候補日を追加</button></div>
+        <div className="section-head"><h2>候補日</h2><button type="button" className="text-btn" disabled={candidates.length >= 31} onClick={() => setCandidates(current => [...current, { date: '', time: null }])}><Icon name="plus" size={18} />候補日を追加</button></div>
         <p className="hint">候補の日時を変えると、その候補に入っていた票は消えます。残った候補への回答は保持されます。</p>
         <ul className="group-list">
           {candidates.map((candidate, index) => <li className="card" key={candidate.id ?? `new-${index}`} style={{ padding: 12 }}>

@@ -741,6 +741,10 @@ describe('data', () => {
       { candidateId: first!.id, value: 'no' }, { candidateId: second!.id, value: 'yes' },
     ] }, answerer);
     expect(staleSubmit.status).toBe(409);
+    const allStaleSubmit = await post(app, db, '/api/invite/answer', { token, name: 'さき', votes: [
+      { candidateId: second!.id, value: 'yes' },
+    ] }, answerer);
+    expect(allStaleSubmit.status).toBe(409);
     const afterStale = await post(app, db, '/api/invite', { token }, answerer);
     expect(((await afterStale.json() as { poll: { ownAnswer: { votes: Record<string, string> } } }).poll.ownAnswer.votes[first!.id])).toBe('yes');
 
