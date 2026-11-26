@@ -120,6 +120,7 @@ function GuestForm({ poll, initial, onSubmit }: {
   const [closed, setClosed] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [denied, setDenied] = useState(false);
+  const [rateLimited, setRateLimited] = useState(false);
   const form = useRef<HTMLFormElement>(null);
   const done = useRef<HTMLHeadingElement>(null);
   const candidates = useRef<HTMLHeadingElement>(null);
@@ -133,12 +134,16 @@ function GuestForm({ poll, initial, onSubmit }: {
     setTried(true);
     if (!answerError(votes, name)) {
       setSending(true);
+      setSendError(null);
+      setDenied(false);
+      setRateLimited(false);
       (onSubmit ?? (() => Promise.resolve<AnswerResult>('ok')))(votes, name.trim(), comment.trim())
         .then(result => {
           setSending(false);
           if (result === 'ok') setView('sent');
           else if (result === 'closed') setClosed(true);
           else if (result === 'forbidden') setDenied(true);
+          else if (result === 'rate_limited') setRateLimited(true);
           else if (result === 'conflict') setSendError('候補日が主催者によって変更されました。ページを読み直して、最新の候補日に回答し直してください。');
           else setSendError('送信に失敗しました。時間をおいて再度お試しください。');
         }).catch(() => { setSending(false); setSendError('送信に失敗しました。時間をおいて再度お試しください。'); });
@@ -181,6 +186,7 @@ function GuestForm({ poll, initial, onSubmit }: {
         {error && <p id="answer-error" className="form-error" role="alert">{error}</p>}
         {sendError && <p className="form-error" role="alert">{sendError}</p>}
         {denied && <p className="form-error" role="alert">ログイン中のアカウントではこの調整に回答できません。グループのメンバーになるか、ログアウトしてからお試しください。</p>}
+        {rateLimited && <p className="form-error" role="alert">少し時間をおいてもう一度お試しください。</p>}
         <button type="submit" className="primary-btn wide" disabled={sending}>{sending ? '送信中…' : '回答を送る'}</button>
         <p className="form-foot m-only">アプリ・ログイン不要で回答できます</p>
       </form>
