@@ -1165,7 +1165,7 @@ describe('data', () => {
     };
     expect(funnel.range.days).toBe(30);
     expect(funnel.daily).toHaveLength(30);
-    expect(funnel.totals).toEqual({ validLinkVisits: 1, answerCompletions: 1, completionRate: 1 });
+    expect(funnel.totals).toMatchObject({ validLinkVisits: 1, answerCompletions: 1, completionRate: 1, usageStartClicks: 0, usageStarts: 0 });
     const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
     expect(funnel.daily.find(day => day.date === today)).toMatchObject({ validLinkVisits: 1, answerCompletions: 1, completionRate: 1 });
 
@@ -1174,6 +1174,56 @@ describe('data', () => {
     expect(rows.results).toHaveLength(2);
     const serialized = JSON.stringify(rows.results);
     for (const secret of ['秘密の名前', '秘密のメモ', '花見', token]) expect(serialized.includes(secret)).toBe(false);
+  });
+
+  test('計測: 回答者の作成クリックと初回グループ作成を同じ匿名IDで記録し、回答元グループに所属させない', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const { groupId, token } = await setupPoll(app, db, host);
+    const guestCookie = await guest(app, db);
+
+    const opened = await post(app, db, '/api/invite', { token }, guestCookie);
+    const { poll } = await opened.json() as { poll: { candidates: { id: string }[] } };
+    const answerBody = { token, name: 'ゲスト花子', comment: '秘密のひとこと', votes: [{ candidateId: poll.candidates[0]!.id, value: 'yes' }] };
+    expect((await post(app, db, '/api/invite/answer', answerBody, guestCookie)).status).toBe(200);
+    expect((await post(app, db, '/api/invite/usage-start-click', { token }, guestCookie)).status).toBe(204);
+    expect((await post(app, db, '/api/invite/usage-start-click', { token }, guestCookie)).status).toBe(204);
+
+    const memberCookie = await login(app, db, 'code_member');
+    const memberWithGuest = `${guestCookie}; ${memberCookie}`;
+    const first = await post(app, db, '/api/groups', { name: '自分の家族', color: '#4E8A5A' }, memberWithGuest);
+    expect(first.status).toBe(201);
+    const { group: ownGroup } = await first.json() as { group: { id: string } };
+    expect((await post(app, db, '/api/groups', { name: '2件目', color: '#D97A3D' }, memberWithGuest)).status).toBe(201);
+
+    const rows = await db.prepare(
+      `SELECT event_type, visitor_id, invite_id, poll_id FROM analytics_events WHERE event_type IN ('answer_submit', 'usage_start_click', 'usage_start')`
+    ).all() as { results: { event_type: string; visitor_id: string; invite_id: string; poll_id: string }[] };
+    const byType = (type: string) => rows.results.filter(row => row.event_type === type);
+    expect(byType('answer_submit')).toHaveLength(1);
+    expect(byType('usage_start_click')).toHaveLength(1);
+    expect(byType('usage_start')).toHaveLength(1);
+    const answerEvent = byType('answer_submit')[0]!;
+    expect(byType('usage_start_click')[0]).toMatchObject({ visitor_id: answerEvent.visitor_id, invite_id: answerEvent.invite_id, poll_id: answerEvent.poll_id });
+    expect(byType('usage_start')[0]).toMatchObject({ visitor_id: answerEvent.visitor_id, invite_id: answerEvent.invite_id, poll_id: answerEvent.poll_id });
+
+    const memberships = rawDb(db).prepare(`SELECT group_id, role FROM memberships WHERE user_id = 'user_member' ORDER BY created_at`).all() as { group_id: string; role: string }[];
+    expect(memberships).toHaveLength(2);
+    expect(memberships.map(row => row.group_id)).not.toContain(groupId);
+    expect(memberships[0]).toMatchObject({ group_id: ownGroup.id, role: 'admin' });
+
+    const otherCookie = await login(app, db, 'code_other');
+    expect((await post(app, db, '/api/groups', { name: '回答なし' }, otherCookie)).status).toBe(201);
+    const usageRows = await db.prepare(`SELECT * FROM analytics_events WHERE event_type = 'usage_start'`).all() as { results: unknown[] };
+    expect(usageRows.results).toHaveLength(1);
+
+    const funnelRes = await req(app, db, '/api/analytics/funnel', { headers: { authorization: 'Bearer analytics-secret' } });
+    const funnel = await funnelRes.json() as { totals: { usageStartClicks: number; usageStarts: number; usageStartClickRate: number | null; usageStartRate: number | null } };
+    expect(funnel.totals).toMatchObject({ usageStartClicks: 1, usageStarts: 1, usageStartClickRate: 1, usageStartRate: 1 });
+
+    const serialized = JSON.stringify(await db.prepare(`SELECT * FROM analytics_events`).all());
+    for (const secret of ['ゲスト花子', '秘密のひとこと', token]) expect(serialized.includes(secret)).toBe(false);
   });
 
   test('計測: Cookieなしの回答でも発行Cookieと回答者が一致し、計測表未適用でも招待は開ける', async () => {

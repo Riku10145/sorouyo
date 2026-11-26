@@ -51,8 +51,10 @@ export function GroupForm({ initial, submitLabel, onSubmit, onCancel }: {
 /** /groups グループ一覧と作成 */
 export function Groups() {
   const me = useMe();
+  const wantsCreate = new URLSearchParams(window.location.search).get('create') === '1';
   const [groups, setGroups] = useState<GroupInfo[] | 'error' | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(wantsCreate);
+  const loginNext = wantsCreate ? '/groups?create=1' : '/groups';
 
   useEffect(() => {
     if (!me) return;
@@ -62,7 +64,7 @@ export function Groups() {
   if (me === undefined) return null;
   if (me === null) {
     return <AppShell active="groups" selectedDate="" groups={[]} subpage>
-      <LoginCard next="/groups" />
+      <LoginCard next={loginNext} />
     </AppShell>;
   }
 

@@ -182,10 +182,12 @@ const analyticsDay = (timestamp = Date.now()) =>
   new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date(timestamp));
 
 /** 匿名の訪問者Cookieだけを使い、表示名・予定名・コメント・リンク秘密部分を残さない。 */
+type AnalyticsEventType = 'invite_visit' | 'answer_submit' | 'usage_start_click' | 'usage_start';
+
 async function recordAnalytics(
-  c: C, eventType: 'invite_visit' | 'answer_submit', inviteId: string, pollId: string, visitorId: string,
+  c: C, eventType: AnalyticsEventType, inviteId: string | null, pollId: string | null, visitorId: string,
 ) {
-  // 計測の失敗で本体の回答・閲覧を失敗させない
+  // 計測の失敗で本体の回答・閲覧・グループ作成を失敗させない
   const at = now();
   try {
     await c.env.DB.prepare(
@@ -194,10 +196,25 @@ async function recordAnalytics(
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       crypto.randomUUID(), eventType, visitorId, inviteId, pollId,
-      analyticsDay(), at, `${eventType}:${inviteId}:${visitorId}`,
+      analyticsDay(), at, `${eventType}:${inviteId ?? 'none'}:${visitorId}`,
     ).run();
   } catch {
     console.warn('analytics event write failed');
+  }
+}
+
+/** ゲスト回答後に初めて自分のグループを作った利用開始を、同じ匿名訪問者IDで記録する。 */
+async function recordUsageStart(c: C, visitorId: string) {
+  try {
+    const source = await get<{ invite_id: string | null; poll_id: string | null }>(c.env.DB.prepare(
+      `SELECT invite_id, poll_id FROM analytics_events
+       WHERE visitor_id = ? AND event_type IN ('usage_start_click', 'answer_submit')
+       ORDER BY created_at DESC, rowid DESC LIMIT 1`
+    ).bind(visitorId).first());
+    if (!source?.invite_id || !source.poll_id) return;
+    await recordAnalytics(c, 'usage_start', source.invite_id, source.poll_id, visitorId);
+  } catch {
+    console.warn('usage start lookup failed');
   }
 }
 
@@ -387,6 +404,23 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
       ).bind(id, subject.userId, at, id),
     ]);
     if (!results[0]?.meta?.changes) return c.json({ error: 'group_limit' } as const, 409);
+    const guestId = await verifyGuestId(getCookie(c, GUEST_COOKIE), c.env);
+    if (guestId) {
+      const createdCount = await get<{ n: number }>(c.env.DB.prepare(
+        `SELECT (
+           SELECT COUNT(*) FROM groups WHERE created_by = ?
+         ) + (
+           SELECT COUNT(*) FROM groups AS g
+           WHERE g.created_by IS NULL AND (
+             SELECT m.user_id FROM memberships AS m
+             WHERE m.group_id = g.id AND m.role = 'admin'
+             ORDER BY m.created_at, m.user_id
+             LIMIT 1
+           ) = ?
+         ) AS n`
+      ).bind(subject.userId, subject.userId).first());
+      if (createdCount?.n === 1) await recordUsageStart(c, guestId);
+    }
     return c.json({ group: { id, name: body.data.name, color: body.data.color ?? null, role: 'admin' } } as const, 201);
   })
 
@@ -976,41 +1010,62 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     const end = analyticsDay();
     const startTimestamp = Date.parse(`${end}T00:00:00Z`) - (days - 1) * 24 * 60 * 60 * 1000;
     const dates = Array.from({ length: days }, (_, index) => analyticsDay(startTimestamp + index * 24 * 60 * 60 * 1000));
-    const rows = await all<{ day: string; event_type: 'invite_visit' | 'answer_submit'; n: number }>(c.env.DB.prepare(
+    const rows = await all<{ day: string; event_type: AnalyticsEventType; n: number }>(c.env.DB.prepare(
       `SELECT occurred_on AS day, event_type, COUNT(*) AS n FROM analytics_events
-       WHERE occurred_on >= ? AND occurred_on <= ? AND event_type IN ('invite_visit', 'answer_submit')
+       WHERE occurred_on >= ? AND occurred_on <= ? AND event_type IN ('invite_visit', 'answer_submit', 'usage_start_click', 'usage_start')
        GROUP BY occurred_on, event_type`
     ).bind(dates[0], end).all());
-    const byDay = new Map(dates.map(day => [day, { date: day, validLinkVisits: 0, answerCompletions: 0 }]));
+    const byDay = new Map(dates.map(day => [day, { date: day, validLinkVisits: 0, answerCompletions: 0, usageStartClicks: 0, usageStarts: 0 }]));
     for (const row of rows) {
       const entry = byDay.get(row.day);
       if (!entry) continue;
       if (row.event_type === 'invite_visit') entry.validLinkVisits = row.n;
-      else entry.answerCompletions = row.n;
+      else if (row.event_type === 'answer_submit') entry.answerCompletions = row.n;
+      else if (row.event_type === 'usage_start_click') entry.usageStartClicks = row.n;
+      else if (row.event_type === 'usage_start') entry.usageStarts = row.n;
     }
-    const daily = [...byDay.values()].map(entry => ({
-      ...entry,
+    const rates = (entry: { validLinkVisits: number; answerCompletions: number; usageStartClicks: number; usageStarts: number }) => ({
       completionRate: entry.validLinkVisits ? entry.answerCompletions / entry.validLinkVisits : null,
-    }));
+      usageStartClickRate: entry.answerCompletions ? entry.usageStartClicks / entry.answerCompletions : null,
+      usageStartRate: entry.answerCompletions ? entry.usageStarts / entry.answerCompletions : null,
+    });
+    const daily = [...byDay.values()].map(entry => ({ ...entry, ...rates(entry) }));
     const totals = daily.reduce((sum, entry) => ({
       validLinkVisits: sum.validLinkVisits + entry.validLinkVisits,
       answerCompletions: sum.answerCompletions + entry.answerCompletions,
-    }), { validLinkVisits: 0, answerCompletions: 0 });
+      usageStartClicks: sum.usageStartClicks + entry.usageStartClicks,
+      usageStarts: sum.usageStarts + entry.usageStarts,
+    }), { validLinkVisits: 0, answerCompletions: 0, usageStartClicks: 0, usageStarts: 0 });
     return c.json({
       range: { start: dates[0], end, days },
       definition: {
         visit: '有効な回答リンクを開いた回数。無効リンクは分母に含めない',
         completion: '有効な回答リンクから回答書き込みが受理された回数',
+        usageStartClick: '回答完了画面で「自分のグループを作る」が押された回数',
+        usageStart: 'ゲスト回答者がログインし、最初の自分のグループを作成した回数',
         dedupe: 'イベント種別＋招待の内部ID＋匿名訪問者Cookieで一意。再読込・再送は重複除外し、再発行リンクは別の招待として数える',
-        rate: '期間内の answerCompletions / validLinkVisits。日別も同じ日に記録された数値の比',
-        future: '利用開始率は usage_start、有料転換率は checkout_completed を同じ匿名イベント構造で追加して区別する',
+        rate: 'completionRateは answerCompletions / validLinkVisits、usageStartClickRateとusageStartRateは分母をanswerCompletionsとする。日別も同じ日に記録された数値の比',
+        future: '有料転換率は checkout_completed を同じ匿名イベント構造で追加して区別する',
       },
-      totals: { ...totals, completionRate: totals.validLinkVisits ? totals.answerCompletions / totals.validLinkVisits : null },
+      totals: { ...totals, ...rates(totals) },
       daily,
     } as const);
   })
 
   // --- ゲスト（回答リンク） ---------------------------------------------------
+
+  // 回答完了画面の「自分のグループを作る」クリック。遷移を止めず、匿名計測だけを行う
+  .post('/invite/usage-start-click', json(inviteBody), async (c) => {
+    if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
+    const body = { data: c.req.valid('json') };
+    const invite = await findInvite(c, body.data.token);
+    if (!invite || invite.purpose !== 'answer' || !invite.poll_id) {
+      return c.json({ error: 'invite_invalid' } as const, 404);
+    }
+    const visitorId = await ensureGuest(c);
+    await recordAnalytics(c, 'usage_start_click', invite.id, invite.poll_id, visitorId);
+    return c.body(null, 204);
+  })
 
   // 招待トークンで調整を開く。返すのはその調整・自分の回答・確定日だけ（メンバー一覧や他の予定は出さない）
   .post('/invite', json(inviteBody), async (c) => {

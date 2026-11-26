@@ -21,7 +21,7 @@ const usage = `Usage:
   node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs drive FEATURE --run-dir DIR [--cdp URL]
   node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs cleanup --run-dir DIR
 
-Features: guest-answer, sample-calendar, sample-poll-status, invite-error-states, login-boundary
+Features: guest-answer, guest-group-start, sample-calendar, sample-poll-status, invite-error-states, login-boundary
 `;
 
 function parse(argv) {
@@ -454,6 +454,30 @@ function resetAnswers(stateDir, pollId) {
   `);
 }
 
+function resetGuestJourney(stateDir, pollId) {
+  resetAnswers(stateDir, pollId);
+  executeSql(stateDir, `DELETE FROM analytics_events WHERE poll_id = ${quote(pollId)}`);
+}
+
+function analyticsRows(stateDir, pollId) {
+  return executeSql(stateDir, `
+    SELECT event_type, visitor_id, invite_id, poll_id
+    FROM analytics_events
+    WHERE poll_id = ${quote(pollId)}
+    ORDER BY created_at, rowid
+  `).results;
+}
+
+async function waitForAnalytics(stateDir, pollId, eventType, timeoutMs = 5_000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const rows = analyticsRows(stateDir, pollId);
+    if (rows.some(row => row.event_type === eventType)) return rows;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  return analyticsRows(stateDir, pollId);
+}
+
 async function driveGuestAnswer(runDir, cdpUrl) {
   const { p, run } = loadRun(runDir);
   if (!fs.existsSync(p.fixtureJson)) throw new Error('missing fixture.json; run seed-invite first');
@@ -539,6 +563,66 @@ async function driveGuestAnswer(runDir, cdpUrl) {
         'reopening the same invite in the same browser context restored the saved answer and comment',
       ],
       artifacts: ['01-open.png', '01-open.aria.txt', '02-filled-no-comment.png', '02-filled-no-comment.aria.txt', '03-sent-no-comment.png', '03-sent-no-comment.aria.txt', 'db-answer-empty.json', '04-comment-added.png', '04-comment-added.aria.txt', '05-sent-with-comment.png', '05-sent-with-comment.aria.txt', '06-editing.png', '06-editing.aria.txt', 'db-answer.json', '07-reopened.png', '07-reopened.aria.txt'],
+    };
+  });
+  writeJson(path.join(directory, 'summary.json'), summary);
+  printJson({ ok: true, evidenceDir: directory, summary });
+}
+
+async function driveGuestGroupStart(runDir, cdpUrl) {
+  const { p } = loadRun(runDir);
+  if (!fs.existsSync(p.fixtureJson)) throw new Error('missing fixture.json; run seed-invite first');
+  const fixture = readJson(p.fixtureJson);
+  resetGuestJourney(p.stateDir, fixture.pollId);
+  const directory = path.join(p.evidenceDir, 'guest-group-start');
+  const votes = ['yes', 'maybe', 'no'];
+  const radioNames = { yes: '○ 参加', maybe: '△ 未定', no: '× 欠席' };
+  const summary = await withMobilePage(cdpUrl, async page => {
+    await page.goto(fixture.url);
+    await page.getByRole('heading', { name: fixture.title }).waitFor();
+    for (const [index, candidate] of fixture.candidates.entries()) {
+      const groupLabel = `${dateLabel(candidate.date)} ${timeLabel(candidate.startTime)}`;
+      await page.getByRole('radiogroup', { name: groupLabel }).getByRole('radio', { name: radioNames[votes[index]] }).click();
+    }
+    await page.getByLabel('お名前').fill(fixture.respondentName);
+    await page.getByRole('button', { name: '回答を送る' }).click();
+    await page.getByRole('heading', { name: '回答を送りました' }).waitFor();
+    await capture(page, directory, '01-answer-complete');
+
+    const start = page.getByRole('link', { name: '自分のグループを作る' });
+    assert.ok((await start.getAttribute('href'))?.endsWith('/groups?create=1'), 'completion CTA must link to /groups?create=1');
+    await start.click();
+    await page.waitForURL('**/groups?create=1');
+    await page.getByRole('heading', { name: 'ログインが必要です' }).waitFor();
+    const loginHref = await page.getByRole('link', { name: 'ログイン' }).getAttribute('href');
+    assert.ok(loginHref?.includes(`next=${encodeURIComponent('/groups?create=1')}`), 'login must preserve /groups?create=1');
+    await capture(page, directory, '02-login-preserved-create-intent');
+
+    const rows = await waitForAnalytics(p.stateDir, fixture.pollId, 'usage_start_click');
+    writeJson(path.join(directory, 'db-analytics.json'), rows);
+    const byType = type => rows.filter(row => row.event_type === type);
+    assert.equal(byType('invite_visit').length, 1, 'valid invite open must be deduplicated');
+    assert.equal(byType('answer_submit').length, 1, 'answer completion must be recorded once');
+    assert.equal(byType('usage_start_click').length, 1, 'create-group CTA click must be recorded once');
+    const answer = byType('answer_submit')[0];
+    for (const type of ['invite_visit', 'usage_start_click']) {
+      assert.equal(byType(type)[0].visitor_id, answer.visitor_id, `${type} must use the same anonymous visitor id`);
+      assert.equal(byType(type)[0].invite_id, answer.invite_id, `${type} must use the internal invite id`);
+      assert.equal(byType(type)[0].poll_id, fixture.pollId, `${type} must use the fixture poll id`);
+    }
+    assert.equal(JSON.stringify(rows).includes(fixture.token), false, 'analytics rows must not contain the invite token secret');
+
+    return {
+      feature: 'guest-group-start',
+      url: fixture.url,
+      assertions: [
+        'the guest completed a real API-backed invite answer in the browser',
+        'the completion CTA links to /groups?create=1',
+        'the signed-out /groups?create=1 route requires login and preserves the create intent in the login next parameter',
+        'invite_visit, answer_submit, and usage_start_click rows were read back from isolated local D1 with the same anonymous visitor id and internal invite id',
+        'analytics rows did not contain the invite token secret',
+      ],
+      artifacts: ['01-answer-complete.png', '01-answer-complete.aria.txt', '02-login-preserved-create-intent.png', '02-login-preserved-create-intent.aria.txt', 'db-analytics.json'],
     };
   });
   writeJson(path.join(directory, 'summary.json'), summary);
@@ -694,6 +778,7 @@ async function drive(positional, options) {
   const cdpUrl = options.cdp ?? defaultCdpUrl;
   const drivers = {
     'guest-answer': driveGuestAnswer,
+    'guest-group-start': driveGuestGroupStart,
     'sample-calendar': driveSampleCalendar,
     'sample-poll-status': driveSamplePollStatus,
     'invite-error-states': driveInviteErrorStates,

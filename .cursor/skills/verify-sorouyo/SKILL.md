@@ -49,6 +49,7 @@ drive は `playwright-core` から CDP の Chrome に接続し、375×812 のモ
 ```sh
 node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs seed-invite --run-dir "$RUN_DIR"
 node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs drive guest-answer --run-dir "$RUN_DIR"
+node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs drive guest-group-start --run-dir "$RUN_DIR"
 ```
 
 他の初期 feature は fixture なしで実行できます。
@@ -108,4 +109,4 @@ drive       feature map にある1つの user journey を browser で実行し�
 cleanup     起動した process、fixture、scratch state を削除し、evidence を残す
 ```
 
-`drive` の対象: `guest-answer`、`sample-calendar`、`sample-poll-status`、`invite-error-states`、`login-boundary`。
+`drive` の対象: `guest-answer`、`guest-group-start`、`sample-calendar`、`sample-poll-status`、`invite-error-states`、`login-boundary`。
