@@ -12,7 +12,7 @@ const positiveInt = (value: string | undefined, fallback: number) => {
 // ユニットテストなどbindingがない環境向けのフォールバック。アプリごとにカウンターを持ち、
 // 独立したテスト同士が回数枠を共有しないようにする。本番・ローカルWorkerでは wrangler.jsonc の
 // Rate Limiting binding が使われ、上限もそちらの simple.limit で変更する。
-export const makeAnswerLimiter = () => {
+export const makeRateLimiter = () => {
   const fallbackBuckets = new Map<string, { count: number; resetAt: number }>();
   const fallbackLimit = (key: string, limit: number, at = Date.now()) => {
     if (fallbackBuckets.size >= 1000) {

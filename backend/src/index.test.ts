@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import app from './index';
+import { app } from './index';
 
 test('health returns JSON 200', async () => {
   const response = await app.request('/api/health');

@@ -15,6 +15,10 @@
       "migrations_dir": "migrations"
     }
   ],
+  "triggers": {
+    // 毎日15:00 UTC（日本時間0時）に古い計測イベントを削除する
+    "crons": ["0 15 * * *"]
+  },
   "ratelimits": [
     {
       "name": "ANSWER_RESPONDENT_RATE_LIMIT",
@@ -31,6 +35,15 @@
       "simple": {
         // 送信元IPごとの既定値: 1分60回
         "limit": 60,
+        "period": 60
+      }
+    },
+    {
+      "name": "INVITE_MEASURE_IP_RATE_LIMIT",
+      "namespace_id": "5801003",
+      "simple": {
+        // 招待表示と利用開始クリックの合計。送信元IPごとの既定値: 1分30回
+        "limit": 30,
         "period": 60
       }
     }

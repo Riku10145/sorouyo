@@ -10,10 +10,11 @@ import { can } from '../../lib/permissions';
 import { isPollAccepting } from '../../lib/polls';
 import { json } from '../../validation';
 import { writeAnswer } from './answers';
-import { rateLimited, makeAnswerLimiter, clientIp } from './rateLimit';
+import { rateLimited, makeRateLimiter, clientIp } from './rateLimit';
 
 export function inviteRoutes(subjectOf: GetSubject) {
-  const limitAnswer = makeAnswerLimiter();
+  const limitAnswer = makeRateLimiter();
+  const limitInviteMeasure = makeRateLimiter();
   /** 送信元IP制限は入力検証より先に行い、不正な本文の連投もカウントする。 */
   const limitAnswerIp = async (c: C, next: Next) => {
     if (!await limitAnswer(
@@ -24,9 +25,18 @@ export function inviteRoutes(subjectOf: GetSubject) {
     )) return rateLimited(c);
     await next();
   };
+  const limitInviteMeasureIp = async (c: C, next: Next) => {
+    if (!await limitInviteMeasure(
+      c.env.INVITE_MEASURE_IP_RATE_LIMIT,
+      `invite-measure-ip:${clientIp(c)}`,
+      c.env.INVITE_MEASURE_IP_RATE_LIMIT_PER_MINUTE,
+      30,
+    )) return rateLimited(c);
+    await next();
+  };
   return new Hono<{ Bindings: DataEnv }>()
   // 回答完了画面の「自分のグループを作る」クリック。遷移を止めず、匿名計測だけを行う
-  .post('/invite/usage-start-click', json(inviteBody), async (c) => {
+  .post('/invite/usage-start-click', limitInviteMeasureIp, json(inviteBody), async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const body = c.req.valid('json');
     const invite = await findInvite(c, body.token);
@@ -39,7 +49,7 @@ export function inviteRoutes(subjectOf: GetSubject) {
   })
 
   // 招待トークンで調整を開く。返すのはその調整・自分の回答・確定日だけ（メンバー一覧や他の予定は出さない）
-  .post('/invite', json(inviteBody), async (c) => {
+  .post('/invite', limitInviteMeasureIp, json(inviteBody), async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const body = c.req.valid('json');
     const invite = await findInvite(c, body.token);
