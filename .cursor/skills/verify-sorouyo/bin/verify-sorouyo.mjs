@@ -128,6 +128,57 @@ function git(args) {
   }
 }
 
+function splitNullSeparated(output) {
+  return output.split('\0').filter(Boolean);
+}
+
+function workingTreeFingerprint() {
+  const tracked = splitNullSeparated(git(['diff', 'HEAD', '--name-only', '-z']));
+  const untracked = splitNullSeparated(git(['ls-files', '-o', '--exclude-standard', '-z']));
+  const files = [...new Set([...tracked, ...untracked])].sort();
+  const hash = crypto.createHash('sha256');
+  hash.update(git(['diff', 'HEAD', '--raw']));
+  for (const file of files) {
+    hash.update(file);
+    hash.update('\0');
+    try {
+      hash.update(fs.readFileSync(path.join(repoRoot, file)));
+    } catch {
+      hash.update('<missing>');
+    }
+    hash.update('\0');
+  }
+  return hash.digest('hex');
+}
+
+function lsofAvailable() {
+  const result = spawnSync('lsof', ['-v'], { stdio: 'ignore' });
+  return !result.error;
+}
+
+function processEnvironmentHasToken(pid, token) {
+  if (!token || process.platform === 'win32') return null;
+  try {
+    return fs.readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0').includes(`SOROUYO_VERIFY_TOKEN=${token}`);
+  } catch {
+    return null;
+  }
+}
+
+function processCommandLine(pid) {
+  if (process.platform === 'win32') return '';
+  const result = spawnSync('ps', ['-ww', '-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
+  return result.error || result.status !== 0 ? '' : result.stdout.trim();
+}
+
+function processMatchesRun(pid, run) {
+  if (!pid || !processAlive(pid)) return false;
+  const tokenMatch = processEnvironmentHasToken(pid, run.processToken);
+  if (tokenMatch !== null) return tokenMatch;
+  const command = processCommandLine(pid);
+  return command.includes(viteBin) && command.includes(`--port ${run.port}`);
+}
+
 async function waitForHealth(url, child, timeoutMs = 45_000) {
   const started = Date.now();
   let lastError = 'not checked';
@@ -163,36 +214,32 @@ function portOwnerPids(port) {
 async function launch(options) {
   const runDir = options['run-dir'] ? path.resolve(repoRoot, options['run-dir']) : defaultRunDir();
   const p = paths(runDir);
-  if (fs.existsSync(p.runJson)) throw new Error(`${p.runJson} already exists; use a new run directory or cleanup first`);
+  if (fs.existsSync(runDir) && fs.readdirSync(runDir).length > 0) {
+    throw new Error(`${runDir} already exists and is not empty; use a new empty run directory or cleanup first`);
+  }
   fs.mkdirSync(runDir, { recursive: true });
   fs.mkdirSync(p.evidenceDir, { recursive: true });
-  fs.rmSync(p.stateDir, { recursive: true, force: true });
   applyMigrations(p.stateDir);
 
   const port = options.port ? Number(options.port) : await freePort();
   if (!Number.isInteger(port) || port <= 0) throw new Error(`invalid port: ${options.port}`);
+  const processToken = crypto.randomUUID();
   const logFd = fs.openSync(p.serverLog, 'a');
   const child = spawn(process.execPath, [viteBin, '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
     cwd: repoRoot,
     detached: process.platform !== 'win32',
-    env: { ...process.env, SOROUYO_PERSIST_STATE: p.stateDir },
+    env: { ...process.env, SOROUYO_PERSIST_STATE: p.stateDir, SOROUYO_VERIFY_TOKEN: processToken },
     stdio: ['ignore', logFd, logFd],
   });
   fs.closeSync(logFd);
   child.unref();
   const url = `http://127.0.0.1:${port}`;
-  try {
-    await waitForHealth(url, child);
-  } catch (error) {
-    stopProcess(child.pid);
-    throw error;
-  }
-
   const metadata = {
     app: 'sorouyo',
     url,
     port,
     pid: child.pid,
+    processToken,
     stateDir: p.stateDir,
     evidenceDir: p.evidenceDir,
     serverLog: p.serverLog,
@@ -201,8 +248,30 @@ async function launch(options) {
     node: process.version,
     gitRevision: git(['rev-parse', 'HEAD']),
     gitStatus: git(['status', '--porcelain']),
+    gitWorkingTreeFingerprint: workingTreeFingerprint(),
   };
   writeJson(p.runJson, metadata);
+
+  const abortLaunch = signal => {
+    process.stderr.write(`launch interrupted; stopping verification server ${child.pid}. Run cleanup for ${runDir}.\n`);
+    stopProcess(child.pid);
+    process.exit(signal === 'SIGINT' ? 130 : 143);
+  };
+  const onSigint = () => abortLaunch('SIGINT');
+  const onSigterm = () => abortLaunch('SIGTERM');
+  process.once('SIGINT', onSigint);
+  process.once('SIGTERM', onSigterm);
+  try {
+    await waitForHealth(url, child);
+  } catch (error) {
+    stopProcess(child.pid);
+    throw error;
+  } finally {
+    process.removeListener('SIGINT', onSigint);
+    process.removeListener('SIGTERM', onSigterm);
+  }
+
+  writeJson(p.runJson, { ...metadata, readyAt: new Date().toISOString() });
   printJson({ ok: true, runDir, url, pid: child.pid, evidenceDir: p.evidenceDir });
 }
 
@@ -218,8 +287,10 @@ async function doctor(options) {
   const { p, run } = loadRun(runDir);
   const checks = {};
   checks.processAlive = processAlive(run.pid);
+  checks.processMatchesLaunch = processMatchesRun(run.pid, run);
+  checks.lsofAvailable = lsofAvailable();
   const owners = portOwnerPids(run.port);
-  checks.portOwnedByLaunchedProcess = owners.includes(run.pid);
+  checks.portOwnedByLaunchedProcess = checks.lsofAvailable && owners.includes(run.pid);
   checks.portOwnerPids = owners;
   try {
     const response = await fetch(`${run.url}/api/health`);
@@ -260,9 +331,11 @@ async function doctor(options) {
   checks.currentGitRevision = git(['rev-parse', 'HEAD']);
   checks.gitRevisionMatches = !run.gitRevision || run.gitRevision === checks.currentGitRevision;
   checks.gitStatusMatches = run.gitStatus === git(['status', '--porcelain']);
+  checks.currentGitWorkingTreeFingerprint = workingTreeFingerprint();
+  checks.gitWorkingTreeFingerprintMatches = !run.gitWorkingTreeFingerprint || run.gitWorkingTreeFingerprint === checks.currentGitWorkingTreeFingerprint;
   checks.ok = Boolean(
-    checks.processAlive && checks.portOwnedByLaunchedProcess && checks.health &&
-    checks.homeIsSorouyo && checks.authBoundaryExpected && checks.cdpReachable && checks.gitRevisionMatches && checks.gitStatusMatches,
+    checks.processMatchesLaunch && checks.portOwnedByLaunchedProcess && checks.health &&
+    checks.homeIsSorouyo && checks.authBoundaryExpected && checks.cdpReachable && checks.gitRevisionMatches && checks.gitStatusMatches && checks.gitWorkingTreeFingerprintMatches,
   );
   checks.runDir = runDir;
   checks.url = run.url;
@@ -586,7 +659,19 @@ async function drive(positional, options) {
     'login-boundary': driveLoginBoundary,
   };
   if (!drivers[feature]) throw new Error(`unknown feature ${feature}; expected one of ${Object.keys(drivers).join(', ')}`);
-  await drivers[feature](runDir, cdpUrl);
+  const directory = path.join(paths(runDir).evidenceDir, feature);
+  fs.rmSync(path.join(directory, 'summary.json'), { force: true });
+  try {
+    await drivers[feature](runDir, cdpUrl);
+  } catch (error) {
+    writeJson(path.join(directory, 'summary.json'), {
+      feature,
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      failedAt: new Date().toISOString(),
+    });
+    throw error;
+  }
 }
 
 function stopProcess(pid) {
@@ -635,7 +720,8 @@ function cleanup(options) {
   } catch (error) {
     fixtureError = error instanceof Error ? error.message : String(error);
   }
-  stopProcess(run.pid);
+  const serverProcessMatched = processMatchesRun(run.pid, run);
+  if (serverProcessMatched) stopProcess(run.pid);
   fs.mkdirSync(p.evidenceDir, { recursive: true });
   fs.cpSync(p.runJson, path.join(p.evidenceDir, 'run.json'));
   if (fs.existsSync(p.serverLog)) fs.cpSync(p.serverLog, path.join(p.evidenceDir, 'server.log'));
@@ -649,6 +735,7 @@ function cleanup(options) {
     evidenceRetained: fs.existsSync(p.evidenceDir),
     removed: ['state/', 'run.json', 'server.log', 'fixture.json'],
     fixtureError,
+    serverProcessMatched,
   };
   printJson(result);
   if (fixtureError) process.exitCode = 1;
