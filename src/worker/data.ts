@@ -205,16 +205,38 @@ async function recordAnalytics(
 
 /** ゲスト回答後に初めて自分のグループを作った利用開始を、同じ匿名訪問者IDで記録する。 */
 async function recordUsageStart(c: C, visitorId: string) {
+  const source = await get<{ invite_id: string | null; poll_id: string | null }>(c.env.DB.prepare(
+    `SELECT invite_id, poll_id FROM analytics_events
+     WHERE visitor_id = ? AND event_type IN ('usage_start_click', 'answer_submit')
+     ORDER BY created_at DESC, rowid DESC LIMIT 1`
+  ).bind(visitorId).first());
+  if (!source?.invite_id || !source.poll_id) return;
+  await recordAnalytics(c, 'usage_start', source.invite_id, source.poll_id, visitorId);
+}
+
+/** グループ作成本体は計測失敗で失敗させず、計測済みの利用開始は別招待で重複させない。 */
+async function measureUsageStart(c: C, userId: string, visitorId: string) {
   try {
-    const source = await get<{ invite_id: string | null; poll_id: string | null }>(c.env.DB.prepare(
-      `SELECT invite_id, poll_id FROM analytics_events
-       WHERE visitor_id = ? AND event_type IN ('usage_start_click', 'answer_submit')
-       ORDER BY created_at DESC, rowid DESC LIMIT 1`
+    const started = await get<{ visitor_id: string }>(c.env.DB.prepare(
+      `SELECT visitor_id FROM analytics_events WHERE event_type = 'usage_start' AND visitor_id = ? LIMIT 1`
     ).bind(visitorId).first());
-    if (!source?.invite_id || !source.poll_id) return;
-    await recordAnalytics(c, 'usage_start', source.invite_id, source.poll_id, visitorId);
+    if (started) return;
+    const createdCount = await get<{ n: number }>(c.env.DB.prepare(
+      `SELECT (
+         SELECT COUNT(*) FROM groups WHERE created_by = ?
+       ) + (
+         SELECT COUNT(*) FROM groups AS g
+         WHERE g.created_by IS NULL AND (
+           SELECT m.user_id FROM memberships AS m
+           WHERE m.group_id = g.id AND m.role = 'admin'
+           ORDER BY m.created_at, m.user_id
+           LIMIT 1
+         ) = ?
+       ) AS n`
+    ).bind(userId, userId).first());
+    if (createdCount?.n === 1) await recordUsageStart(c, visitorId);
   } catch {
-    console.warn('usage start lookup failed');
+    console.warn('usage start measurement failed');
   }
 }
 
@@ -405,22 +427,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     ]);
     if (!results[0]?.meta?.changes) return c.json({ error: 'group_limit' } as const, 409);
     const guestId = await verifyGuestId(getCookie(c, GUEST_COOKIE), c.env);
-    if (guestId) {
-      const createdCount = await get<{ n: number }>(c.env.DB.prepare(
-        `SELECT (
-           SELECT COUNT(*) FROM groups WHERE created_by = ?
-         ) + (
-           SELECT COUNT(*) FROM groups AS g
-           WHERE g.created_by IS NULL AND (
-             SELECT m.user_id FROM memberships AS m
-             WHERE m.group_id = g.id AND m.role = 'admin'
-             ORDER BY m.created_at, m.user_id
-             LIMIT 1
-           ) = ?
-         ) AS n`
-      ).bind(subject.userId, subject.userId).first());
-      if (createdCount?.n === 1) await recordUsageStart(c, guestId);
-    }
+    if (guestId) await measureUsageStart(c, subject.userId, guestId);
     return c.json({ group: { id, name: body.data.name, color: body.data.color ?? null, role: 'admin' } } as const, 201);
   })
 

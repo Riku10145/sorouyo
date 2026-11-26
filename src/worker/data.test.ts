@@ -1195,7 +1195,9 @@ describe('data', () => {
     const first = await post(app, db, '/api/groups', { name: '自分の家族', color: '#4E8A5A' }, memberWithGuest);
     expect(first.status).toBe(201);
     const { group: ownGroup } = await first.json() as { group: { id: string } };
-    expect((await post(app, db, '/api/groups', { name: '2件目', color: '#D97A3D' }, memberWithGuest)).status).toBe(201);
+    const second = await post(app, db, '/api/groups', { name: '2件目', color: '#D97A3D' }, memberWithGuest);
+    expect(second.status).toBe(201);
+    const { group: secondGroup } = await second.json() as { group: { id: string } };
 
     const rows = await db.prepare(
       `SELECT event_type, visitor_id, invite_id, poll_id FROM analytics_events WHERE event_type IN ('answer_submit', 'usage_start_click', 'usage_start')`
@@ -1213,9 +1215,16 @@ describe('data', () => {
     expect(memberships.map(row => row.group_id)).not.toContain(groupId);
     expect(memberships[0]).toMatchObject({ group_id: ownGroup.id, role: 'admin' });
 
+    // 計測済みなら、全件削除後の再作成でも別の利用開始を増やさない
+    expect((await mutate(app, db, 'DELETE', `/api/groups/${ownGroup.id}`, null, memberWithGuest)).status).toBe(204);
+    expect((await mutate(app, db, 'DELETE', `/api/groups/${secondGroup.id}`, null, memberWithGuest)).status).toBe(204);
+    expect((await post(app, db, '/api/groups', { name: '作り直し' }, memberWithGuest)).status).toBe(201);
+    let usageRows = await db.prepare(`SELECT * FROM analytics_events WHERE event_type = 'usage_start'`).all() as { results: unknown[] };
+    expect(usageRows.results).toHaveLength(1);
+
     const otherCookie = await login(app, db, 'code_other');
     expect((await post(app, db, '/api/groups', { name: '回答なし' }, otherCookie)).status).toBe(201);
-    const usageRows = await db.prepare(`SELECT * FROM analytics_events WHERE event_type = 'usage_start'`).all() as { results: unknown[] };
+    usageRows = await db.prepare(`SELECT * FROM analytics_events WHERE event_type = 'usage_start'`).all() as { results: unknown[] };
     expect(usageRows.results).toHaveLength(1);
 
     const funnelRes = await req(app, db, '/api/analytics/funnel', { headers: { authorization: 'Bearer analytics-secret' } });
