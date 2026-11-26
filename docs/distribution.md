@@ -25,8 +25,8 @@
 
 | PoCの部分 | 扱い | 移植先 |
 | --- | --- | --- |
-| 日付キー・日付表示・月グリッド・月送り（`dateKey` `dateFromKey` `validDate` `dateLabel` `monthCells` `shiftedMonth` `DAYS`） | TypeScriptに移植し、テストも移植 | `src/shared/model.ts` |
-| ○△×の定義と集計（`VOTES` `tally`） | 移植。投票値はZodの列挙で検証 | `src/shared/model.ts` |
+| 日付キー・日付表示・月グリッド・月送り（`dateKey` `dateFromKey` `validDate` `dateLabel` `monthCells` `shiftedMonth` `DAYS`） | TypeScriptに移植し、テストも移植 | `frontend/src/lib/date.ts` |
+| ○△×の定義と集計（`VOTES` `tally`） | 移植。投票値はZodの列挙で検証 | `frontend/src/feature/polls/lib/votes.ts` |
 | 回答の上書き・日程確定（`upsertAnswer` `confirmPoll`） | 流用しない。サーバー側で条件付き更新として実装（[service-design.md](./service-design.md)） | #3 / #29 |
 | localStorage保存・ダミーデータ・招待データをURLに詰める処理（`packPoll` `unpackPoll`） | 流用しない。別端末で共有できず、データがURLに露出するため | — |
 | 料金プラン・テーマ切替の画面 | 流用しない。販売範囲は #30 で決める | — |

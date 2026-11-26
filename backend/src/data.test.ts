@@ -13,10 +13,9 @@ import {
   type SessionUser,
   type WorkosClient,
 } from './auth';
-import { buildDataRoutes, type DataEnv } from './data';
-import { GROUP_CREATION_LIMIT } from '../../shared/schema';
-
-// --- D1 を node:sqlite でシムする（migrations/*.sql をそのまま適用） ---
+import { buildDataRoutes } from './data';
+import type { DataEnv } from './context';
+import { GROUP_CREATION_LIMIT } from '../../shared/limits';
 
 function makeDb(beforeJoinInviteExpiryMigration?: (db: DatabaseSync) => void, includeAnalytics = true): D1Database {
   const db = new DatabaseSync(':memory:');
@@ -71,8 +70,6 @@ function makeDb(beforeJoinInviteExpiryMigration?: (db: DatabaseSync) => void, in
 function rawDb(db: D1Database): DatabaseSync {
   return (db as D1Database & { rawDb: DatabaseSync }).rawDb;
 }
-
-// --- WorkOS のフェイク（code_XX -> user_XX の対応だけ見る） ------------------
 
 const users: Record<string, SessionUser> = {
   code_host: { id: 'user_host', email: 'host@example.com', firstName: '一郎', lastName: '主催' },
@@ -1135,7 +1132,6 @@ describe('data', () => {
     expect((await mutate(app, db, 'PATCH', `/api/polls/${pollId}`, { editVersion: 0, title: 'x', candidates: [{ id: first!.id, date: first!.date, time: first!.startTime }] }, host)).status).toBe(409);
   });
 
-
   test('計測: 有効リンク訪問と回答完了を匿名IDで重複除外し、30日の日別率を返す', async () => {
     const db = makeDb();
     const app = testApp(db);
@@ -1280,7 +1276,6 @@ describe('data', () => {
       token: oldPoll.token, name: '互換確認', votes: [{ candidateId: oldCandidate, value: 'yes' }],
     })).status).toBe(200);
   });
-
 
   test('回答API: 回答トークン×ゲスト識別子のレート制限は429と案内文を返す', async () => {
     const db = makeDb();

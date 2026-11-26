@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { authRoutes, guestRoutes } from './auth';
-import { dataRoutes, type DataEnv } from './data';
+import { dataRoutes } from './data';
+import type { DataEnv } from './context';
 
 const app = new Hono<{ Bindings: DataEnv }>()
   .get('/api/health', (c) => c.json({ ok: true } as const))

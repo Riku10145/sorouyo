@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { getCookie } from 'hono/cookie';
 import { describe, expect, test, vi } from 'vitest';
 import {
   GUEST_COOKIE,

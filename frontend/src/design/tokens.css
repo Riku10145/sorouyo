@@ -1,0 +1,17 @@
+/* Paper「そろうよ モバイルデザイン」の変数と配色 */
+:root {
+  --color-bg: #FBFBF7; --color-surface: #FFFFFF; --color-ink: #214F3F; --color-text: #202F29;
+  --color-muted: #53665C; --color-line: #D6DCD3; --color-line-soft: #E1E5DE;
+  --color-focus: #577E68;
+  --color-primary: #214F3F; --color-primary-soft: #E8F2E7; --color-hero: #F7E8B0; --color-hero-line: #E2D6A3;
+  --color-maybe: #F1D79D; --color-maybe-ink: #825825; --color-pending: #F8E6BA; --color-pending-ink: #79531F;
+  --color-no: #52645A; --color-no-line: #4C5A53;
+  --color-group-family: #D97A3D; --color-group-family-soft: #F9E8D9;
+  --color-group-pair: #C95D7C; --color-group-pair-soft: #F7E2E9;
+  --color-group-a: #4E8A5A; --color-group-a-soft: #E3EFE4;
+  --color-group-b: #7A5CA8; --color-group-b-soft: #EBE4F5;
+  --color-sun: #C05B4D; --color-sat: #4A6E9E;
+  --font-sans: "Noto Sans JP Variable", "Noto Sans JP", system-ui, sans-serif; --font-serif: "Noto Serif JP", serif;
+  --font-num: "DM Sans Variable", "DM Sans", "Noto Sans JP Variable", system-ui, sans-serif;
+  --radius-sm: 8px; --radius-md: 12px; --radius-lg: 16px; --radius-xl: 20px;
+}

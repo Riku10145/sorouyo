@@ -1,4 +1,4 @@
-import { GROUP_CREATION_LIMIT } from '../../../shared/schema';
+import { GROUP_CREATION_LIMIT } from '../../../shared/limits';
 
 export const GROUP_CREATE_FREE_NOTICE = `いまは無料で、1人${GROUP_CREATION_LIMIT}グループまで作れます。有料プランを始めたあとも、それまでに作ったグループは無料のまま使えます。`;
 

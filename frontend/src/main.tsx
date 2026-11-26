@@ -1,25 +1,30 @@
 import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
+import { api } from './api/client';
+import { Toaster } from './components/Toaster';
+import { EventDetail } from './feature/calendar/pages/EventDetail';
+import { Home } from './feature/calendar/pages/Home';
+import { GroupDetail } from './feature/groups/pages/GroupDetail';
+import { Groups } from './feature/groups/pages/Groups';
+import { JoinGroup } from './feature/groups/pages/JoinGroup';
+import { Plan } from './feature/plan/pages/Plan';
+import { PollStatus } from './feature/polls/components/PollStatus';
+import { findPoll } from './feature/polls/lib/sample';
+import { GuestAnswer } from './feature/polls/pages/GuestAnswer';
+import { RemotePollStatus } from './feature/polls/pages/MemberPoll';
+import { PollCreate } from './feature/polls/pages/PollCreate';
+import { PollEdit } from './feature/polls/pages/PollEdit';
+import { Polls } from './feature/polls/pages/Polls';
+import { scheduleEventNotifications } from './feature/settings/notifications';
+import { Settings } from './feature/settings/pages/Settings';
+import { validDate, todayInTokyo } from './lib/date';
+import { SAMPLE_SELECTED_DATE } from './lib/sampleDate';
+
 import '@fontsource-variable/noto-sans-jp';
 import '@fontsource/noto-serif-jp/800.css';
 import '@fontsource-variable/dm-sans';
 import '@fontsource/dm-serif-text/400.css';
-import { validDate } from './lib/model';
-import { SAMPLE_SELECTED_DATE, findPoll } from './lib/sample';
-import { Toaster } from './design/ui';
-import { Home, todayInTokyo } from './screens/Home';
-import { PollStatus, RemotePollStatus } from './screens/PollStatus';
-import { PollEdit } from './screens/PollEdit';
-import { Polls, PollCreate } from './screens/Polls';
-import { GuestAnswer } from './screens/GuestAnswer';
-import { Groups, GroupDetail } from './screens/Groups';
-import { JoinGroup } from './screens/Join';
-import { EventDetail } from './screens/EventDetail';
-import { Settings } from './screens/Settings';
-import { Plan } from './screens/Plan';
-import { api } from './api';
-import { scheduleEventNotifications } from './notify';
-import './style.css';
+import './design/style.css';
 
 function Screen() {
   const { pathname, search } = window.location;

@@ -1,0 +1,9 @@
+import { validator } from 'hono/validator';
+import { z } from 'zod';
+
+export const json = <T extends z.ZodType>(schema: T) =>
+  validator('json', (value, c) => {
+    const parsed = schema.safeParse(value);
+    if (!parsed.success) return c.json({ error: 'invalid_body' } as const, 400);
+    return parsed.data;
+  });
