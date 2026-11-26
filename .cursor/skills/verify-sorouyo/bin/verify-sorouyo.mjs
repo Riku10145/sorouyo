@@ -384,7 +384,7 @@ function seedInvite(options) {
     { id: ids.candidates[2], position: 2, date: plusDays(16), startTime: null },
   ];
   const sql = `
-    INSERT INTO groups (id, name, color, created_at) VALUES (${quote(ids.group)}, ${quote(groupName)}, '#4E8A5A', ${quote(now)});
+    INSERT INTO groups (id, name, color, created_by, created_at) VALUES (${quote(ids.group)}, ${quote(groupName)}, '#4E8A5A', ${quote(`verify-${suffix}`)}, ${quote(now)});
     INSERT INTO polls (id, group_id, creator_id, title, deadline_at, status, created_at, edit_version, reopen_pending)
       VALUES (${quote(ids.poll)}, ${quote(ids.group)}, ${quote(`verify-${suffix}`)}, ${quote(title)}, NULL, 'open', ${quote(now)}, 0, 0);
     ${candidates.map(candidate => `INSERT INTO candidates (id, poll_id, position, date, start_time) VALUES (${quote(candidate.id)}, ${quote(ids.poll)}, ${candidate.position}, ${quote(candidate.date)}, ${candidate.startTime ? quote(candidate.startTime) : 'NULL'});`).join('\n')}

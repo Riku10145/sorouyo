@@ -142,10 +142,10 @@ export async function fetchGroups(): Promise<GroupInfo[] | null> {
   return (await response.json()).groups as GroupInfo[];
 }
 
-export async function createGroup(name: string, color: string | null): Promise<GroupInfo | null> {
+export async function createGroup(name: string, color: string | null): Promise<{ status: number; group?: GroupInfo }> {
   const response = await api.api.groups.$post({ json: { name, color } });
-  if (!response.ok) return null;
-  return (await response.json()).group as GroupInfo;
+  if (!response.ok) return { status: response.status };
+  return { status: response.status, group: (await response.json()).group as GroupInfo };
 }
 
 export async function updateGroup(id: string, name: string, color: string | null): Promise<GroupInfo | null> {

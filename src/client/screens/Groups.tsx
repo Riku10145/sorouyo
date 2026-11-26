@@ -4,6 +4,7 @@ import { Brand, Icon, Dot, toast, GROUP_COLORS, DEFAULT_GROUP_COLOR, type Displa
 import { AppShell } from './Shell';
 import { LoginCard } from './Auth';
 import { GROUP_CREATE_FREE_NOTICE } from '../../shared/planCopy';
+import { GROUP_CREATION_LIMIT } from '../../shared/model';
 
 /** 名前+色の入力フォーム。エラー時も入力した名前を消さない */
 export function GroupForm({ initial, submitLabel, onSubmit, onCancel, showFreeNotice = false }: {
@@ -90,10 +91,11 @@ export function Groups() {
         {creating
           ? <section className="card group-create"><h2>グループを作成</h2>
             <GroupForm submitLabel="作成する" showFreeNotice onSubmit={async (name, color) => {
-              const group = await createGroup(name, color);
-              if (!group) return '作成できませんでした';
+              const created = await createGroup(name, color);
+              if (created.status === 409) return `作成できるグループは${GROUP_CREATION_LIMIT}件までです。一覧から不要なグループを開き、作成済みが${GROUP_CREATION_LIMIT - 1}件以下になるまで削除すると、また作成できます。`;
+              if (!created.group) return '作成できませんでした';
               toast('グループを作成しました');
-              window.location.href = `/groups/${group.id}`;
+              window.location.href = `/groups/${created.group.id}`;
               return null;
             }} />
           </section>
