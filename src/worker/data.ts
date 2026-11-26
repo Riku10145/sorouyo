@@ -369,7 +369,15 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
       c.env.DB.prepare(
         `INSERT INTO groups (id, name, color, created_by, created_at)
          SELECT ?, ?, ?, ?, ?
-         WHERE (SELECT COUNT(*) FROM groups WHERE created_by = ?) < ?`
+         WHERE (
+           SELECT COUNT(*) FROM groups AS g
+           WHERE COALESCE(g.created_by, (
+             SELECT m.user_id FROM memberships AS m
+             WHERE m.group_id = g.id AND m.role = 'admin'
+             ORDER BY m.created_at, m.user_id
+             LIMIT 1
+           )) = ?
+         ) < ?`
       ).bind(id, body.data.name, body.data.color ?? null, subject.userId, at, subject.userId, GROUP_CREATION_LIMIT),
       c.env.DB.prepare(
         `INSERT INTO memberships (group_id, user_id, role, created_at)

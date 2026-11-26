@@ -585,6 +585,24 @@ describe('data', () => {
       .toMatchObject({ name: '新しい家族', color: '#4E8A5A' });
   });
 
+  test('グループ作成上限: migration後に旧Workerが作ったcreated_by未設定のグループも数える', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+
+    rawDb(db).prepare(`INSERT INTO users (id, email, display_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`)
+      .run('user_host', 'host@example.com', '主催 一郎', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+    rawDb(db).prepare(`INSERT INTO groups (id, name, created_by, created_at) VALUES (?, ?, NULL, ?)`)
+      .run('group_transition', '移行中のグループ', '2026-01-01T00:00:00.000Z');
+    rawDb(db).prepare(`INSERT INTO memberships (group_id, user_id, role, created_at) VALUES (?, ?, 'admin', ?)`)
+      .run('group_transition', 'user_host', '2026-01-01T00:00:00.000Z');
+
+    for (let i = 0; i < 9; i++) {
+      expect((await post(app, db, '/api/groups', { name: `作成${i}` }, host)).status).toBe(201);
+    }
+    expect((await post(app, db, '/api/groups', { name: '11件目' }, host)).status).toBe(409);
+  });
+
   test('グループ作成上限: 11件目は409で、参加グループは数えず削除するとまた作れる', async () => {
     const db = makeDb();
     const app = testApp(db);
