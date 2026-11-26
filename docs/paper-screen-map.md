@@ -35,17 +35,17 @@
 
 | Paper | 実装 |
 | --- | --- |
-| 変数（色・文字・角丸） | `src/client/style.css` の `:root`。Paperの画面で実際に使われている値（文字色 `#214F3F`、補足 `#53665C`、線 `#D6DCD3` など）に合わせ、グループ4色は変数の値をそのまま使う |
+| 変数（色・文字・角丸） | `frontend/src/design/tokens.css` の `:root`。Paperの画面で実際に使われている値（文字色 `#214F3F`、補足 `#53665C`、線 `#D6DCD3` など）に合わせ、グループ4色は変数の値をそのまま使う |
 | 文字 | 本文 Noto Sans JP、見出し Noto Serif JP 800、数字 DM Sans、月の数字 DM Serif Text（Fontsourceで同梱） |
-| ① 最小構成（ボタン・チップ・予定ピル・○△×） | `src/client/design/ui.tsx` の `EventPill`、`VoteMark`、`.primary-btn` など |
+| ① 最小構成（ボタン・チップ・予定ピル・○△×） | `frontend/src/design/style.css` の `.pill`・`.primary-btn`、`frontend/src/feature/polls/components/Vote.tsx` の `VoteMark` など |
 | ② 組み合わせ（候補日の行・回答ボタン列・入力欄） | `VotePicker`（50×44pxのラジオボタン3つ）、`.cand-row`、`.field` |
-| ③ 複合（招待の見出し・下部ナビ・PCサイドバー） | `InviteHero`、`src/client/screens/Shell.tsx` |
-| ⑤ UIアイコン (SVG) | `src/client/design/art.tsx` の `icons`（線色は `currentColor`） |
+| ③ 複合（招待の見出し・下部ナビ・PCサイドバー） | `InviteHero`、`frontend/src/components/AppShell.tsx` |
+| ⑤ UIアイコン (SVG) | `frontend/src/design/art.tsx` の `icons`（線色は `currentColor`） |
 | ④ 固定イラスト／⑥ 月ごとの挿絵 | `art.tsx` の `stamps`、`Envelope`、`monthArt`（1月〜12月） |
 
 ## 見比べ方とサンプルデータ
 
-`src/shared/sample.ts` はPaperの代表画面と同じデータ（2026年11月の予定、11/21の「おうちランチ」「映画デート」、いつメンの「餃子の会」と候補日11/22・11/26・11/28、はな・けんじ・ゆいの回答）。ブラウザ幅375pxと1440pxで次を開いて比べる。
+`frontend/src/feature/calendar/lib/sample.ts` と `frontend/src/feature/polls/lib/sample.ts` はPaperの代表画面と同じデータ（2026年11月の予定、11/21の「おうちランチ」「映画デート」、いつメンの「餃子の会」と候補日11/22・11/26・11/28、はな・けんじ・ゆいの回答）。ブラウザ幅375pxと1440pxで次を開いて比べる。
 
 - `/?date=2026-11-21`（`date` を省くと日本時間の今日を選ぶ）
 - `/polls/sample`
