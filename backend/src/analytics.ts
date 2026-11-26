@@ -4,6 +4,14 @@ import { now } from './lib/time';
 export const analyticsDay = (timestamp = Date.now()) =>
   new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date(timestamp));
 
+export const ANALYTICS_RETENTION_DAYS = 90;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export async function cleanupAnalyticsEvents(db: D1Database, timestamp = Date.now()) {
+  const retentionStart = analyticsDay(timestamp - (ANALYTICS_RETENTION_DAYS - 1) * DAY_MS);
+  await db.prepare(`DELETE FROM analytics_events WHERE occurred_on < ? AND event_type != 'usage_start'`).bind(retentionStart).run();
+}
+
 /** 匿名の訪問者Cookieだけを使い、表示名・予定名・コメント・リンク秘密部分を残さない。 */
 export type AnalyticsEventType = 'invite_visit' | 'answer_submit' | 'usage_start_click' | 'usage_start';
 

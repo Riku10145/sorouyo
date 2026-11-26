@@ -14,6 +14,7 @@ import {
   type WorkosClient,
 } from './auth';
 import { buildDataRoutes } from './data';
+import worker from './index';
 import type { DataEnv } from './context';
 import { GROUP_CREATION_LIMIT } from '../../shared/limits';
 
@@ -1329,6 +1330,57 @@ describe('data', () => {
     expect((await post(oldApp, oldDb, '/api/invite/answer', {
       token: oldPoll.token, name: '互換確認', votes: [{ candidateId: oldCandidate, value: 'yes' }],
     })).status).toBe(200);
+  });
+
+  test('計測API: Cookieを保存しない連打はIP制限で止まり、イベント増加も止まる', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const { token } = await setupPoll(app, db, host);
+    const bindings = { INVITE_MEASURE_IP_RATE_LIMIT_PER_MINUTE: '3' };
+
+    for (const _ of [1, 2, 3]) {
+      expect((await post(app, db, '/api/invite', { token }, '', bindings)).status).toBe(200);
+    }
+    const limited = await post(app, db, '/api/invite', { token }, '', bindings);
+    expect(limited.status).toBe(429);
+    expect((await db.prepare(`SELECT COUNT(*) AS n FROM analytics_events WHERE event_type = 'invite_visit'`).first() as { n: number }).n).toBe(3);
+  });
+
+  test('計測API: invite表示と利用開始クリックは同じIP制限キーを使う', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const keys: string[] = [];
+    const rateLimit = {
+      limit: async ({ key }: { key: string }) => {
+        keys.push(key);
+        return { success: false };
+      },
+    } as RateLimit;
+    const bindings = { INVITE_MEASURE_IP_RATE_LIMIT: rateLimit };
+    const headers = { 'cf-connecting-ip': '203.0.113.9' };
+
+    expect((await post(app, db, '/api/invite', { token: 'bad' }, '', bindings, headers)).status).toBe(429);
+    expect((await post(app, db, '/api/invite/usage-start-click', { token: 'bad' }, '', bindings, headers)).status).toBe(429);
+    expect(keys).toEqual(['invite-measure-ip:203.0.113.9', 'invite-measure-ip:203.0.113.9']);
+  });
+
+  test('計測イベント: 保持期限を過ぎた行だけを削除し、利用開始の重複防止は残す', async () => {
+    const db = makeDb();
+    const insert = rawDb(db).prepare(
+      `INSERT INTO analytics_events (id, event_type, visitor_id, invite_id, poll_id, occurred_on, created_at, dedupe_key)
+       VALUES (?, ?, 'visitor', 'invite', 'poll', ?, ?, ?)`
+    );
+    insert.run('old', 'invite_visit', '2026-08-28', '2026-08-28T00:00:00.000Z', 'old-key');
+    insert.run('kept', 'invite_visit', '2026-08-29', '2026-08-29T00:00:00.000Z', 'kept-key');
+    insert.run('usage', 'usage_start', '2026-08-28', '2026-08-28T00:00:00.000Z', 'usage-key');
+    await worker.scheduled(
+      { cron: '0 15 * * *', scheduledTime: Date.parse('2026-11-25T15:00:00.000Z'), noRetry: () => {} },
+      env(db),
+      { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext,
+    );
+
+    expect((await db.prepare(`SELECT id FROM analytics_events ORDER BY id`).all() as { results: { id: string }[] }).results.map(row => row.id)).toEqual(['kept', 'usage']);
   });
 
   test('回答API: 回答トークン×ゲスト識別子のレート制限は429と案内文を返す', async () => {
