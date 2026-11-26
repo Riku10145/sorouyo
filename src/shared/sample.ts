@@ -50,6 +50,8 @@ export type Poll = {
   answers: readonly PollAnswer[];
   /** 確定した候補のインデックス（実データのみ。サンプルは closed だけを使う） */
   confirmedIndex?: number | null;
+  /** 確定時に作られた予定ID。古い画面からの取消が再確定済みの予定を消さないように使う */
+  confirmedEventId?: string | null;
 };
 
 const gyoza = {

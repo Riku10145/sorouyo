@@ -5,7 +5,7 @@
 ## 方式（service-design.md の採用案どおり）
 
 - **主催者・グループメンバー**: WorkOS AuthKitのホスト画面でログインする。Workerが `/api/auth/login` で `state` を発行し、`/api/auth/callback` で一回限りの `state` Cookieを照合してから認可コードを交換する。WorkOS SDKで暗号化したセッションを `sorouyo_session` Cookie（Secure・HttpOnly・SameSite=Lax・30日）に保存する。アクセストークンが切れていたら `/api/auth/me` がSDKで更新してCookieを置き換える。別端末でも同じWorkOSアカウントでログインすれば同じ利用者に戻れる。アカウント識別はWorkOSの `(iss, sub)` で、管理権限の引き継ぎはログインした本人のアカウントに限る。
-- **リンク回答者（ゲスト）**: ログイン不要。`/r#<token>` を開くと、既存の `sorouyo_guest` Cookie があれば自分の回答を読み込む。Cookie がなければ回答送信時（`POST /api/invite/answer`）に発行する（Secure・HttpOnly・SameSite=Lax・1年・HMAC-SHA256署名付き）。署名鍵は `WORKOS_COOKIE_PASSWORD` を使い、認証未設定の環境ではインスタンスごとの乱数に退避する。AuthKitのログイン処理は呼ばない。
+- **リンク回答者（ゲスト）**: ログイン不要。`/r#<token>` を開くと、既存の `sorouyo_guest` Cookie があれば自分の回答を読み込む。Cookie がなければ有効リンクの表示時に発行する（Secure・HttpOnly・SameSite=Lax・1年・HMAC-SHA256署名付き）。署名鍵は `WORKOS_COOKIE_PASSWORD` を使い、認証未設定の環境ではインスタンスごとの乱数に退避する。AuthKitのログイン処理は呼ばない。
 
 ## API
 
@@ -29,5 +29,6 @@ Cookieを使う更新リクエスト（`POST /api/auth/logout`、`POST /api/gues
 | `WORKOS_COOKIE_PASSWORD` | セッションCookieの暗号化鍵（32文字以上）。WorkerのSecret。 |
 | `WORKOS_REDIRECT_URI` | 省略時 `<origin>/api/auth/callback`。AuthKitのDashboardにも同じ値を登録する。 |
 | `WORKOS_LOGOUT_RETURN_TO` | 省略時 `<origin>`。ログアウト後の戻り先としてAuthKitに登録する。 |
+| `ANALYTICS_TOKEN` | 内部用 `GET /api/analytics/funnel` のBearerトークン。WorkerのSecret。未設定時は集計APIを503で閉じる。 |
 
 未設定の環境では会員APIが503になり、画面の「ログイン」導線は503 JSONを返す。ゲスト入口は認証設定なしで動く。

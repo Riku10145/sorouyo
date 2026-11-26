@@ -9,6 +9,7 @@ import { SAMPLE_SELECTED_DATE, findPoll } from '../shared/sample';
 import { Toaster } from './design/ui';
 import { Home, todayInTokyo } from './screens/Home';
 import { PollStatus, RemotePollStatus } from './screens/PollStatus';
+import { PollEdit } from './screens/PollEdit';
 import { Polls, PollCreate } from './screens/Polls';
 import { GuestAnswer } from './screens/GuestAnswer';
 import { Groups, GroupDetail } from './screens/Groups';
@@ -34,6 +35,8 @@ function Screen() {
   if (groupId) return <GroupDetail id={groupId} selectedDate={selected} />;
   const eventId = pathname.match(/^\/events\/([\w-]+)\/?$/)?.[1];
   if (eventId) return <EventDetail id={eventId} selectedDate={selected} />;
+  const pollEditId = pathname.match(/^\/polls\/([\w-]+)\/edit\/?$/)?.[1];
+  if (pollEditId) return <PollEdit key={pollEditId} id={pollEditId} selectedDate={selected} />;
   const pollId = pathname.match(/^\/polls\/([\w-]+)\/?$/)?.[1];
   if (pollId) {
     const poll = findPoll(pollId);
