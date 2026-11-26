@@ -878,6 +878,38 @@ describe('data', () => {
     expect(memberSeen.members).toEqual([]);
   });
 
+  test('#8 コメントは回答した調整ごとに分かれ、他の調整に混ざらない', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const first = await setupPoll(app, db, host);
+    const secondRes = await post(app, db, `/api/groups/${first.groupId}/polls`, {
+      title: '打ち合わせ',
+      candidates: [{ date: '2026-04-05', time: '19:00' }],
+    }, host);
+    const second = await secondRes.json() as { poll: { id: string }; token: string };
+    const guestCookie = await guest(app, db);
+
+    const answerOn = async (token: string, comment: string) => {
+      const invite = await post(app, db, '/api/invite', { token }, guestCookie);
+      const { poll } = await invite.json() as { poll: { candidates: { id: string }[] } };
+      const res = await post(app, db, '/api/invite/answer', {
+        token, name: '花子', comment, votes: [{ candidateId: poll.candidates[0]!.id, value: 'maybe' }],
+      }, guestCookie);
+      expect(res.status).toBe(200);
+    };
+    await answerOn(first.token, '19時以降なら');
+    await answerOn(second.token, '翌日なら');
+
+    const readAnswers = async (pollId: string) => {
+      const res = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } });
+      const { poll } = await res.json() as { poll: { answers: { name: string; comment: string | null }[] } };
+      return poll.answers;
+    };
+    expect(await readAnswers(first.pollId)).toEqual([expect.objectContaining({ name: '花子', comment: '19時以降なら' })]);
+    expect(await readAnswers(second.poll.id)).toEqual([expect.objectContaining({ name: '花子', comment: '翌日なら' })]);
+  });
+
   test('#32 通知設定: 保存と読み出しができ、未設定は無効・既定時刻、不正な時刻は400', async () => {
     const db = makeDb();
     const app = testApp(db);
