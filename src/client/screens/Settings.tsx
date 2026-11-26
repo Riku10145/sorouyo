@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Brand, Icon } from '../design/ui';
 import { GuestFrame } from './GuestAnswer';
 import { api, useMe, fetchNotificationSettings, saveNotificationSettings, type Me, type NotificationSettings } from '../api';
@@ -13,6 +13,7 @@ const notifySupported = () => typeof window !== 'undefined' && 'Notification' in
 /** #32 予定通知の設定カード。通知APIのない端末では非対応であることだけを示す */
 function NotificationCard() {
   const [settings, setSettings] = useState<NotificationSettings | null>(null);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const [permission, setPermission] = useState(() => notifySupported() ? Notification.permission : 'unsupported');
   useEffect(() => {
     let active = true;
@@ -26,18 +27,22 @@ function NotificationCard() {
     </section>;
   }
   if (!settings) return null;
-  const save = async (next: NotificationSettings) => {
-    const previous = settings;
+  const save = (next: NotificationSettings) => {
     setSettings(next);
-    const ok = await saveNotificationSettings(next);
-    if (ok) {
-      toast('通知設定を保存しました');
-      resetNotificationSchedule();
-    } else {
-      setSettings(previous); // 保存できなかったのにオンに見せない
-      toast('通知設定を保存できませんでした');
-    }
-    setPermission(Notification.permission);
+    // 直列に保存する。並行すると後から届いた古い保存で、切ったはずの通知がオンに戻ることがある
+    saveQueue.current = saveQueue.current.then(async () => {
+      try {
+        if (!(await saveNotificationSettings(next))) throw new Error('save failed');
+        toast('通知設定を保存しました');
+        resetNotificationSchedule();
+      } catch {
+        // HTTPエラー・通信例外どちらでも、サーバーの現在値に表示を戻して失敗を伝える
+        const server = await fetchNotificationSettings().catch(() => null);
+        if (server) setSettings(server);
+        toast('通知設定を保存できませんでした');
+      }
+      setPermission(Notification.permission);
+    });
   };
   const toggle = async () => {
     if (!settings.enabled && Notification.permission === 'default') {
