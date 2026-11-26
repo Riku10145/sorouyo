@@ -9,13 +9,13 @@ sorouyo の主な surface は React SPA の Web UI と `/api/*` の Hono API で
 
 ## Launch
 
-前提: リポジトリルートにいること。Node.js 24 と依存パッケージがインストール済みであること。Chrome が CDP `http://localhost:29229` で待受していること。CDP が無ければ Linux では次で起動できます。
+前提: リポジトリルートにいること。Node.js 24、依存パッケージ、`lsof` がインストール済みであること。Chrome が CDP `http://localhost:29229` で待受していること。CDP が無ければ、既定プロファイルとは別の検証専用プロファイルで起動します。Chrome 136 以降は既定プロファイルの remote debugging を受け付けません。
 
 ```sh
-google-chrome --remote-debugging-port=29229 >/tmp/sorouyo-verify-chrome.log 2>&1 &
+google-chrome --remote-debugging-port=29229 --user-data-dir="$HOME/.cache/sorouyo-verify-chrome" >/tmp/sorouyo-verify-chrome.log 2>&1 &
 ```
 
-macOS では README の手順どおり `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` に同じフラグを付けます。
+macOS では `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` に同じ `--remote-debugging-port` と `--user-data-dir` を付けます。複数の Chrome を同時に使う場合は profile directory も分けてください。
 
 検証インスタンスの起動:
 
@@ -36,7 +36,7 @@ node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs launch --run-dir "$RUN
 node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs doctor --run-dir "$RUN_DIR"
 ```
 
-`doctor` は読み取り専用で、起動した PID の生存、そのポートの listener が起動した PID であること、`/api/health`、SPAの `<title>そろうよ</title>`、`/api/auth/me` が未ログイン境界として 401 または 503 を返すこと、CDPへ接続できること、起動時の git revision とワークツリー状態が変わっていないことを確認します。`ok: true` 以外のインスタンスは drive しないでください。
+`doctor` は読み取り専用で、起動した PID が検証用 token と起動コマンドに一致すること、そのポートの listener が起動した PID であること、`/api/health`、SPAの `<title>そろうよ</title>`、`/api/auth/me` が未ログイン境界として 401 または 503 を返すこと、CDPへ接続できること、起動時の git revision とワークツリー内容が変わっていないことを確認します。`lsofAvailable: false` の場合は `lsof` を導入してから調べ直してください。`ok: true` 以外のインスタンスは drive しないでください。
 
 WorkOS が未設定のローカル環境では `authMeStatus: 503` が正しい状態です。ゲスト回答とサンプル画面の検証にはログイン不要です。会員専用機能の通し検証には real WorkOS 設定とテストアカウントが必要で、この helper はそれらを偽装しません。
 
@@ -69,7 +69,7 @@ helper が使う代表 selector は次のとおりです。手動で再現する
 
 ## Evidence
 
-証跡は `$RUN_DIR/evidence/<feature>/` に残ります。各 feature の `summary.json`、操作前後の PNG screenshot、ARIA snapshot を確認してください。`guest-answer` には `db-answer.json` もあり、ブラウザ送信が孤立した local D1 の `answers`・`votes` 行として読み返せたことを示します。
+証跡は `$RUN_DIR/evidence/<feature>/` に残ります。各 feature の `summary.json`、操作前後の PNG screenshot、ARIA snapshot を確認してください。失敗した drive は `summary.json` に `ok: false` と失敗理由を残すので、途中まで生成された画像を成功証跡と取り違えないでください。`guest-answer` には `db-answer.json` もあり、ブラウザ送信が孤立した local D1 の `answers`・`votes` 行として読み返せたことを示します。
 
 証明の基準:
 
@@ -88,7 +88,7 @@ helper が使う代表 selector は次のとおりです。手動で再現する
 node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs cleanup --run-dir "$RUN_DIR"
 ```
 
-`cleanup` は `run.json` に記録した PID/process group だけを止め、seed fixture を D1 から削除し、 scratch state・`run.json`・`server.log` を削除します。`run.json` と `server.log` は先に `$RUN_DIR/evidence/` へコピーされます。プロセス名で `pkill` したり、自分が起動していない Chrome や Vite を止めたりしないでください。
+`cleanup` は `run.json` に記録した PID が検証用 token と起動コマンドに一致するときだけ process group を止め、seed fixture を D1 から削除し、 scratch state・`run.json`・`server.log` を削除します。`run.json` と `server.log` は先に `$RUN_DIR/evidence/` へコピーされます。プロセス名で `pkill` したり、自分が起動していない Chrome や Vite を止めたりしないでください。
 
 cleanup 後も証跡が残ることを確認します。
 
