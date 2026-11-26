@@ -7,7 +7,7 @@ import { type GetSubject, pollTarget } from '../../lib/access';
 import { type GroupRow, type PollRow, type CandidateRow, type AnswerRow, type VoteRow, all } from '../../lib/db';
 import { findInvite } from '../../lib/invites';
 import { can } from '../../lib/permissions';
-import { now } from '../../lib/time';
+import { isPollAccepting } from '../../lib/polls';
 import { json } from '../../validation';
 import { writeAnswer } from './answers';
 import { rateLimited, makeAnswerLimiter, clientIp } from './rateLimit';
@@ -70,7 +70,7 @@ export function inviteRoutes(subjectOf: GetSubject) {
         : Promise.resolve(null),
       c.env.DB.prepare(`SELECT display_name FROM users WHERE id = ?`).bind(poll.creator_id).first<{ display_name: string | null }>(),
     ]);
-    const accepting = poll.status === 'open' && !poll.reopen_pending && (!poll.deadline_at || poll.deadline_at > now());
+    const accepting = isPollAccepting(poll);
     return c.json({
       poll: {
         id: poll.id,
@@ -138,7 +138,7 @@ export function inviteRoutes(subjectOf: GetSubject) {
     if (!votes.length) return c.json({ error: 'invalid_body' } as const, 400);
 
     // 締切・確定済みの調整には、既存回答があっても新しい送信を受け付けない
-    const accepting = poll.status === 'open' && !poll.reopen_pending && (!poll.deadline_at || new Date(poll.deadline_at).getTime() > Date.now());
+    const accepting = isPollAccepting(poll);
     if (!accepting) return c.json({ error: 'closed' } as const, 410);
 
     const { wrote, saved, savedVotes } = await writeAnswer(c, poll.id, key, ids, body.name, body.comment ?? null, votes);
@@ -147,7 +147,7 @@ export function inviteRoutes(subjectOf: GetSubject) {
     const latest = await c.env.DB.prepare(
       `SELECT status, deadline_at, reopen_pending FROM polls WHERE id = ?`
     ).bind(poll.id).first<Pick<PollRow, 'status' | 'deadline_at' | 'reopen_pending'>>();
-    const stillOpen = latest?.status === 'open' && !latest.reopen_pending && (!latest.deadline_at || new Date(latest.deadline_at).getTime() > Date.now());
+    const stillOpen = latest ? isPollAccepting(latest) : false;
     if (!stillOpen) return c.json({ error: 'closed' } as const, 410);
     if (!wrote || !saved || (votes.length && !savedVotes.length)) return c.json({ error: 'conflict' } as const, 409);
     const answerVisitorId = subject.guestId ?? await ensureGuest(c);
