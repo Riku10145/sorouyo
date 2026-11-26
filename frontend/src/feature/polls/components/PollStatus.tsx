@@ -12,6 +12,8 @@ import { InviteHero } from './InviteHero';
 import { ReminderCard } from './ReminderCard';
 import { VoteMark } from './Vote';
 
+export type CopyLinkResult = { url: string } | { error: 'limit' | 'error' };
+
 export function PollStatus({ poll, selectedDate, expired = false, canConfirm = true, canViewTally = true, members, viewerName, onConfirm, onUnconfirm, onCopyLink, onAnswerLink }: {
   poll: Poll; selectedDate: string; expired?: boolean;
   /** 確定権限がある操作者か（主催者のみ。メンバーには確定UIを出さない） */
@@ -24,7 +26,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   viewerName?: string;
   onConfirm?: (index: number) => Promise<string | null>;
   onUnconfirm?: (eventId: string) => Promise<boolean>;
-  onCopyLink?: () => Promise<string>;
+  onCopyLink?: () => Promise<CopyLinkResult>;
   onAnswerLink?: () => void;
 }) {
   const best = bestCandidate(poll);
@@ -52,16 +54,20 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   const respondents = poll.answers.filter(answered).length;
   const candidate = poll.candidates[chosen]!;
   const confirmLabel = `${dateLabel(candidate.date).replace('（', '(').replace('）', ')')}に確定する`;
-  const linkUrl = async () => onCopyLink ? await onCopyLink() : guestUrl(poll);
+  const copyLinkResult = async (): Promise<CopyLinkResult> => onCopyLink ? await onCopyLink() : { url: guestUrl(poll) };
+  const linkUrl = async () => {
+    const result = await copyLinkResult();
+    return 'url' in result ? result.url : '';
+  };
   const copy = async () => {
     // iOS Safari はタップのジェスチャーが切れると書き込みを拒否するため、
     // リンク取得を待つ版は ClipboardItem に Promise を渡して先に書き込みを開始する
     if (onCopyLink && typeof ClipboardItem !== 'undefined') {
       try {
         const item = new ClipboardItem({
-          'text/plain': linkUrl().then(url => {
-            if (!url) throw new Error('no link');
-            return new Blob([url], { type: 'text/plain' });
+          'text/plain': copyLinkResult().then(result => {
+            if ('error' in result) throw new Error(result.error);
+            return new Blob([result.url], { type: 'text/plain' });
           }),
         });
         await navigator.clipboard.write([item]);
@@ -69,10 +75,13 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
         return;
       } catch { /* フォールバックに回す */ }
     }
-    const url = await linkUrl();
-    if (!url) { toast('回答リンクを作れませんでした'); return; }
-    try { await navigator.clipboard.writeText(url); toast('回答リンクをコピーしました'); }
-    catch { toast(`回答リンク：${url}`); }
+    const result = await copyLinkResult();
+    if ('error' in result) {
+      toast(result.error === 'limit' ? 'この調整の回答リンクは発行上限に達しました' : '回答リンクを作れませんでした');
+      return;
+    }
+    try { await navigator.clipboard.writeText(result.url); toast('回答リンクをコピーしました'); }
+    catch { toast(`回答リンク：${result.url}`); }
   };
   const confirming = useRef(false);
   const confirm = async () => {

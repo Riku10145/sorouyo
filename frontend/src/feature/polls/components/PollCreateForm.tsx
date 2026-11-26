@@ -4,6 +4,7 @@ import { AppShell } from '../../../components/AppShell';
 import { Icon } from '../../../components/Icon';
 import { toast } from '../../../components/Toaster';
 import { dateLabel, dayTone, weekday, todayInTokyo } from '../../../lib/date';
+import { POLL_LIMIT_PER_GROUP } from '../../../../../shared/limits';
 import { createPoll } from '../api/polls';
 import { CandidateDatePicker } from './CandidateDatePicker';
 
@@ -49,6 +50,10 @@ export function PollCreateForm({ groups }: { groups: GroupInfo[] }) {
       candidates: dates.map(date => ({ date, time: times[date] || null })),
     }).catch(() => null); // 通信断もフォームを保持して再送可能に
     setBusy(false);
+    if (created === 'limit') {
+      setError(`このグループの調整は${POLL_LIMIT_PER_GROUP}件までです。不要な調整を削除してから作成してください。`);
+      return;
+    }
     if (!created) { setError('作成できませんでした。時間をおいて再度お試しください。'); return; }
     setResult(created);
     setStep('done');

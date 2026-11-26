@@ -41,8 +41,9 @@ export async function fetchPolls(): Promise<{ status: number; polls?: PollSummar
 export async function createPoll(
   groupId: string,
   body: CreatePollInput,
-): Promise<{ id: string; token: string } | null> {
+): Promise<{ id: string; token: string } | 'limit' | null> {
   const response = await api.api.groups[':id'].polls.$post({ param: { id: groupId }, json: body });
+  if (response.status === 409) return 'limit';
   if (!response.ok) return null;
   const data = await response.json();
   return { id: data.poll.id, token: data.token };
@@ -60,8 +61,9 @@ export async function confirmCandidate(id: string, candidateId: string): Promise
   return (await response.json()).event?.id ?? null;
 }
 
-export async function issueInviteToken(id: string): Promise<string | null> {
+export async function issueInviteToken(id: string): Promise<string | 'limit' | null> {
   const response = await api.api.polls[':id'].invite.$post({ param: { id } });
+  if (response.status === 409) return 'limit';
   if (!response.ok) return null;
   return (await response.json()).token;
 }
