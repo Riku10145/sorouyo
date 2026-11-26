@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { hc } from 'hono/client';
-import type { AppType } from '../worker';
-import type { Vote } from '../shared/model';
+import type { AppType } from '../../backend/src/index';
+import type { Vote } from '../../shared/schema';
 
 export const api = hc<AppType>(window.location.origin);
 

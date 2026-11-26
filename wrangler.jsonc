@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "sorouyo",
-  "main": "src/worker/index.ts",
+  "main": "backend/src/index.ts",
   "compatibility_date": "2026-11-15",
   "assets": {
     "not_found_handling": "single-page-application",

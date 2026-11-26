@@ -1,7 +1,8 @@
 import { useEffect, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
 import { Envelope, icons, stamps, type IconName } from './art';
-import { VOTES, type Vote } from '../../shared/model';
-import { groupName, type CalendarEvent, type GroupId, type Poll } from '../../shared/sample';
+import { VOTES } from '../lib/model';
+import type { Vote } from '../../../shared/schema';
+import { groupName, type CalendarEvent, type GroupId, type Poll } from '../lib/sample';
 
 // グループの色。作成・編集画面はこのパレットから選び、DBには先頭の16進色を保存する
 export const GROUP_COLORS = [

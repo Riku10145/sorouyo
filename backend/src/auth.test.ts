@@ -14,7 +14,7 @@ import {
   type SessionUser,
   type WorkosClient,
 } from './auth';
-import { can, type PollTarget } from '../shared/permissions';
+import { can, type PollTarget } from './lib/permissions';
 
 const user: SessionUser = { id: 'user_1', email: 'host@example.com', firstName: '主', lastName: '催' };
 

@@ -1,13 +1,13 @@
-export const VOTE_VALUES = ['yes', 'maybe', 'no'] as const;
-export type Vote = (typeof VOTE_VALUES)[number];
-const isVote = (value: unknown): value is Vote => VOTE_VALUES.some(vote => vote === value);
+import { voteValues } from '../../../shared/schema';
+import type { Vote } from '../../../shared/schema';
+
+const isVote = (value: unknown): value is Vote => voteValues.some(vote => vote === value);
 export const VOTES = [
   { value: 'yes', mark: '○', label: '行ける' },
   { value: 'maybe', mark: '△', label: '未定' },
   { value: 'no', mark: '×', label: '行けない' },
 ] as const satisfies readonly { value: Vote; mark: string; label: string }[];
 export const DAYS = ['日', '月', '火', '水', '木', '金', '土'] as const;
-export const GROUP_CREATION_LIMIT = 5;
 
 const padded = (number: number) => String(number).padStart(2, '0');
 export const dateKey = (date: Date): string => `${date.getFullYear()}-${padded(date.getMonth() + 1)}-${padded(date.getDate())}`;

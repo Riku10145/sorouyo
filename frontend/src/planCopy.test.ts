@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, expect, test, vi } from 'vitest';
-import { GROUP_CREATE_FREE_NOTICE, PLAN_FREE_NOTICE } from '../shared/planCopy';
+import { GROUP_CREATE_FREE_NOTICE, PLAN_FREE_NOTICE } from './lib/planCopy';
 import { Plan } from './screens/Plan';
 
 afterEach(() => vi.unstubAllGlobals());

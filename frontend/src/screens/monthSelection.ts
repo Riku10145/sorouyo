@@ -1,4 +1,4 @@
-import { shiftedMonth } from '../../shared/model';
+import { shiftedMonth } from '../lib/model';
 
 export function monthSelection(month: string, direction: number, today: string): string {
   const next = shiftedMonth(month, direction);

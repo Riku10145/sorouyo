@@ -1,4 +1,4 @@
-import { dateKey } from '../shared/model';
+import { dateKey } from './lib/model';
 import { fetchCalendar, fetchNotificationSettings } from './api';
 import { digestBody, fireAt, shouldFire } from './notifyLogic';
 

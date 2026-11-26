@@ -14,7 +14,7 @@ import {
   type WorkosClient,
 } from './auth';
 import { buildDataRoutes, type DataEnv } from './data';
-import { GROUP_CREATION_LIMIT } from '../shared/model';
+import { GROUP_CREATION_LIMIT } from '../../shared/schema';
 
 // --- D1 を node:sqlite でシムする（migrations/*.sql をそのまま適用） ---
 

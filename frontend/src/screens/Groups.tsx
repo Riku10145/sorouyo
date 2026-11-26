@@ -3,8 +3,8 @@ import { useMe, fetchGroups, fetchGroup, createGroup, updateGroup, deleteGroup, 
 import { Brand, Icon, Dot, toast, GROUP_COLORS, DEFAULT_GROUP_COLOR, type DisplayGroup } from '../design/ui';
 import { AppShell } from './Shell';
 import { LoginCard } from './Auth';
-import { GROUP_CREATE_FREE_NOTICE } from '../../shared/planCopy';
-import { GROUP_CREATION_LIMIT } from '../../shared/model';
+import { GROUP_CREATE_FREE_NOTICE } from '../lib/planCopy';
+import { GROUP_CREATION_LIMIT } from '../../../shared/schema';
 
 /** 名前+色の入力フォーム。エラー時も入力した名前を消さない */
 export function GroupForm({ initial, submitLabel, onSubmit, onCancel, showFreeNotice = false }: {

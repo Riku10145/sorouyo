@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { answered, bestCandidate, dateLabel, shortDate, tally, timeLabel, weekday, dayTone } from '../../shared/model';
-import { SAMPLE_ORGANIZER, type Poll } from '../../shared/sample';
+import { answered, bestCandidate, dateLabel, shortDate, tally, timeLabel, weekday, dayTone } from '../lib/model';
+import { SAMPLE_ORGANIZER, type Poll } from '../lib/sample';
 import { Icon, InviteHero, VoteMark, notReady, toast, type DisplayGroup } from '../design/ui';
 import { AppShell } from './Shell';
 import { LoginLink } from './Auth';

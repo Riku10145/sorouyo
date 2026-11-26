@@ -1,5 +1,5 @@
 import { Brand, Icon } from '../design/ui';
-import { PLAN_FREE_NOTICE } from '../../shared/planCopy';
+import { PLAN_FREE_NOTICE } from '../lib/planCopy';
 import { AppShell } from './Shell';
 
 export function Plan() {

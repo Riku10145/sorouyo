@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { DAYS, dateFromKey, dateKey, dateLabel, dayTone, monthCells, shiftedMonth } from '../../shared/model';
-import { GROUPS, SAMPLE_EVENTS, groupName, type CalendarEvent, type Stamp } from '../../shared/sample';
+import { DAYS, dateFromKey, dateKey, dateLabel, dayTone, monthCells, shiftedMonth } from '../lib/model';
+import { GROUPS, SAMPLE_EVENTS, groupName, type CalendarEvent, type Stamp } from '../lib/sample';
 import { monthArt, stamps } from '../design/art';
 import { Brand, Dot, Icon, notReady, toast, type DisplayGroup, groupCls, groupVars } from '../design/ui';
 import { createEvent, createGroup, fetchCalendar, fetchGroups, useMe, type CalEvent, type GroupInfo } from '../api';

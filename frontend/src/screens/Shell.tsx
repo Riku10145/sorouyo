@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Brand, Dot, Icon, type DisplayGroup } from '../design/ui';
 import type { IconName } from '../design/art';
-import { dateLabel } from '../../shared/model';
+import { dateLabel } from '../lib/model';
 
 export type Tab = 'calendar' | 'polls' | 'groups' | 'plan';
 const NAV: readonly { id: Tab; label: string; icon: IconName; href: string }[] = [

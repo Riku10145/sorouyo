@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type SubmitEvent, type ReactNode } from 'react';
-import { answerError, dateLabel, dayTone, shortDate, timeLabel, weekday, type Vote } from '../../shared/model';
-import { findPoll, type Poll } from '../../shared/sample';
+import { answerError, dateLabel, dayTone, shortDate, timeLabel, weekday } from '../lib/model';
+import type { Vote } from '../../../shared/schema';
+import { findPoll, type Poll } from '../lib/sample';
 import { Brand, Icon, InviteHero, VOTE_WORD, VoteMark, VotePicker } from '../design/ui';
 import { Envelope } from '../design/art';
 import { fetchInvite, recordUsageStartClick, submitAnswer, toJst, type AnswerResult, type InvitePoll } from '../api';

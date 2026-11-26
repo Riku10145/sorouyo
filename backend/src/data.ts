@@ -2,9 +2,8 @@ import { Hono } from 'hono';
 import type { Context, Next } from 'hono';
 import { z } from 'zod';
 import { validator } from 'hono/validator';
-import { voteSchema } from '../shared/schema';
-import { GROUP_CREATION_LIMIT } from '../shared/model';
-import { can, type PollTarget, type Subject } from '../shared/permissions';
+import { GROUP_CREATION_LIMIT, createGroupBody, createPollBody, inviteBody, answerBody, confirmBody, notificationSettingsBody, unconfirmBody, eventBody, updatePollBody } from '../../shared/schema';
+import { can, type PollTarget, type Subject } from './lib/permissions';
 import { getCookie } from 'hono/cookie';
 import {
   GUEST_COOKIE, authDeps, checkOrigin, ensureGuest, resolveUser, verifyGuestId,
@@ -327,38 +326,6 @@ async function writeAnswer(
   return { wrote, saved: saved ?? null, savedVotes };
 }
 
-// --- バリデーション ----------------------------------------------------------
-
-// グループ色は16進カラーコード。画面はパレットから選ぶ
-const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
-const createGroupBody = z.object({ name: z.string().trim().min(1).max(40), color: colorSchema.nullish() });
-const joinBody = z.object({ token: z.string().min(1) });
-const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
-const createPollBody = z.object({
-  title: z.string().trim().min(1).max(60),
-  deadlineAt: z.iso.datetime().nullish(),
-  candidates: z.array(z.object({ date: z.iso.date(), time: timeSchema.nullish() })).min(1).max(31),
-});
-const inviteBody = z.object({ token: z.string().min(1) });
-const answerBody = z.object({
-  token: z.string().min(1),
-  name: z.string().trim().min(1).max(30),
-  comment: z.string().trim().max(100).nullish(),
-  votes: z.array(z.object({ candidateId: z.string().min(1), value: voteSchema })).max(50),
-});
-const confirmBody = z.object({ candidateId: z.string().min(1) });
-const notificationSettingsBody = z.object({ enabled: z.boolean(), time: timeSchema });
-const unconfirmBody = z.object({ eventId: z.string().min(1) });
-const eventBody = z.object({
-  date: z.iso.date(), time: timeSchema.nullish(), title: z.string().trim().min(1).max(60), memo: z.string().trim().max(500).nullish(),
-});
-const candidateInput = z.object({ id: z.string().min(1).optional(), date: z.iso.date(), time: timeSchema.nullish() });
-const updatePollBody = z.object({
-  editVersion: z.number().int().nonnegative(),
-  title: z.string().trim().min(1).max(60),
-  deadlineAt: z.iso.datetime().nullish(),
-  candidates: z.array(candidateInput).min(1).max(31),
-});
 const monthQuery = /^\d{4}-\d{2}$/;
 
 const json = <T extends z.ZodType>(schema: T) =>
@@ -466,7 +433,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
   })
 
   // 参加リンクのプレビュー。リンクを持つ人にグループ名・招待元・参加すると見える情報だけを出す
-  .post('/groups/join/preview', json(joinBody), async (c) => {
+  .post('/groups/join/preview', json(inviteBody), async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const body = { data: c.req.valid('json') };
     const invite = await findInvite(c, body.data.token);
@@ -497,7 +464,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
   })
 
   // 参加リンクでログイン済み利用者が明示的に「参加」して所属を作る。再参加は冪等（役割は変えない）
-  .post('/groups/join', json(joinBody), async (c) => {
+  .post('/groups/join', json(inviteBody), async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const subject = await subjectOf(c);
     if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);

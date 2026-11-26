@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { DAYS, dateLabel, dayTone, monthCells, shiftedMonth, shortDate, weekday } from '../../shared/model';
+import { DAYS, dateLabel, dayTone, monthCells, shiftedMonth, shortDate, weekday } from '../lib/model';
 import { createPoll, fetchGroups, fetchPolls, toJst, useMe, type GroupInfo, type PollSummary } from '../api';
 import { Brand, Dot, Icon, toast, type DisplayGroup } from '../design/ui';
 import { AppShell } from './Shell';

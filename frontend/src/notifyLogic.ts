@@ -1,4 +1,4 @@
-import { dateKey, timeLabel } from '../shared/model';
+import { dateKey, timeLabel } from './lib/model';
 
 /** 当日の通知時刻（端末ローカル）。time は HH:MM */
 export function fireAt(now: Date, time: string): Date {

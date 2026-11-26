@@ -3,7 +3,7 @@ import { Brand, Icon, Dot, type DisplayGroup } from '../design/ui';
 import { previewJoin, joinGroup, useMe, type JoinPreview } from '../api';
 import { GuestFrame, useHashToken } from './GuestAnswer';
 import { LoginLink } from './Auth';
-import { dateLabel } from '../../shared/model';
+import { dateLabel } from '../lib/model';
 
 /** /join#<token> 参加リンクの受け取り画面（#25） */
 export function JoinGroup() {

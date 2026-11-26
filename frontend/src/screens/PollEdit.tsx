@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { dateLabel } from '../../shared/model';
+import { dateLabel } from '../lib/model';
 import { deletePoll, fetchMemberPoll, toJst, updatePoll, useMe, type MemberPoll } from '../api';
 import { Dot, Icon, toast } from '../design/ui';
 import { AppShell } from './Shell';
