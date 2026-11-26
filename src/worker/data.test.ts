@@ -102,10 +102,14 @@ function testApp(db: D1Database) {
     .route('/api', buildDataRoutes(() => deps));
 }
 
-const env = (db: D1Database): DataEnv => ({ DB: db, WORKOS_COOKIE_PASSWORD: 'x'.repeat(40) });
+const env = (db: D1Database, extra: Partial<DataEnv> = {}): DataEnv => ({
+  DB: db,
+  WORKOS_COOKIE_PASSWORD: 'x'.repeat(40),
+  ...extra,
+});
 
-const req = (app: ReturnType<typeof testApp>, db: D1Database, path: string, init?: RequestInit) =>
-  app.request(`https://app.example${path}`, init, env(db));
+const req = (app: ReturnType<typeof testApp>, db: D1Database, path: string, init?: RequestInit, bindings?: Partial<DataEnv>) =>
+  app.request(`https://app.example${path}`, init, env(db, bindings));
 
 const login = async (app: ReturnType<typeof testApp>, db: D1Database, code: string) => {
   const res = await req(app, db, `/api/auth/callback?code=${code}&state=x`, {
@@ -119,12 +123,14 @@ const guest = async (app: ReturnType<typeof testApp>, db: D1Database) => {
   return res.headers.getSetCookie().find(v => v.startsWith(`${GUEST_COOKIE}=`))!.split(';')[0]!;
 };
 
-const post = (app: ReturnType<typeof testApp>, db: D1Database, path: string, body: unknown, cookie = '') =>
-  req(app, db, path, {
-    method: 'POST',
-    headers: { cookie, 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+const post = (
+  app: ReturnType<typeof testApp>, db: D1Database, path: string, body: unknown, cookie = '',
+  bindings?: Partial<DataEnv>, headers: Record<string, string> = {},
+) => req(app, db, path, {
+  method: 'POST',
+  headers: { cookie, 'content-type': 'application/json', ...headers },
+  body: JSON.stringify(body),
+}, bindings);
 
 /** 主催がグループを作り調整を作成し、回答トークンを返す。 */
 async function setupPoll(app: ReturnType<typeof testApp>, db: D1Database, host: string) {
@@ -589,5 +595,90 @@ describe('data', () => {
     const { poll: inv } = await inviteRes.json() as { poll: { accepting: boolean; candidates: { id: string }[] } };
     expect(inv.accepting).toBe(false);
     expect((await post(app, db, '/api/invite/answer', { token, name: 'x', votes: [{ candidateId: inv.candidates[0]!.id, value: 'yes' }] }, await guest(app, db))).status).toBe(410);
+  });
+
+  test('回答API: 回答トークン×ゲスト識別子のレート制限は429と案内文を返す', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const { token } = await setupPoll(app, db, host);
+    const invite = await post(app, db, '/api/invite', { token });
+    const { poll } = await invite.json() as { poll: { candidates: { id: string }[] } };
+    const keys: string[] = [];
+    const rateLimit = {
+      limit: async ({ key }: { key: string }) => {
+        keys.push(key);
+        return { success: false };
+      },
+    } as RateLimit;
+
+    const res = await post(app, db, '/api/invite/answer', {
+      token,
+      name: 'A子',
+      votes: [{ candidateId: poll.candidates[0]!.id, value: 'yes' }],
+    }, await guest(app, db), { ANSWER_RESPONDENT_RATE_LIMIT: rateLimit });
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: 'rate_limited', message: '少し時間をおいてもう一度お試しください' });
+    expect(keys[0]).toMatch(/^answer-respondent:[a-f0-9]{64}:g:/);
+  });
+
+  test('回答API: IPのレート制限はcf-connecting-ipをキーにして429を返す', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const keys: string[] = [];
+    const rateLimit = {
+      limit: async ({ key }: { key: string }) => {
+        keys.push(key);
+        return { success: false };
+      },
+    } as RateLimit;
+
+    const res = await post(app, db, '/api/invite/answer', { token: 'bad', name: 'A子', votes: [] }, '', {
+      ANSWER_IP_RATE_LIMIT: rateLimit,
+    }, { 'cf-connecting-ip': '203.0.113.9' });
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: 'rate_limited', message: '少し時間をおいてもう一度お試しください' });
+    expect(keys).toEqual(['answer-ip:203.0.113.9']);
+  });
+
+  test('回答API: 不正な本文の送信もIPの回数枠を使う', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const bindings = { ANSWER_IP_RATE_LIMIT_PER_MINUTE: '1' };
+
+    expect((await post(app, db, '/api/invite/answer', {}, '', bindings)).status).toBe(400);
+    const limited = await post(app, db, '/api/invite/answer', { token: 'bad', name: 'A子', votes: [] }, '', bindings);
+    expect(limited.status).toBe(429);
+    expect((await limited.json() as { message: string }).message).toBe('少し時間をおいてもう一度お試しください');
+  });
+
+  test('回答API: IPのフォールバック回数枠は独立したアプリ間で共有しない', async () => {
+    const firstDb = makeDb();
+    const secondDb = makeDb();
+    const firstApp = testApp(firstDb);
+    const secondApp = testApp(secondDb);
+    const bindings = { ANSWER_IP_RATE_LIMIT_PER_MINUTE: '1' };
+    const body = { token: 'bad', name: 'A子', votes: [] };
+
+    expect((await post(firstApp, firstDb, '/api/invite/answer', body, '', bindings)).status).toBe(404);
+    expect((await post(secondApp, secondDb, '/api/invite/answer', body, '', bindings)).status).toBe(404);
+    expect((await post(firstApp, firstDb, '/api/invite/answer', body, '', bindings)).status).toBe(429);
+  });
+
+  test('回答API: bindingがない環境ではフォールバック上限を設定できる', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const { token } = await setupPoll(app, db, host);
+    const invite = await post(app, db, '/api/invite', { token });
+    const { poll } = await invite.json() as { poll: { candidates: { id: string }[] } };
+    const cookie = await guest(app, db);
+    const bindings = { ANSWER_RESPONDENT_RATE_LIMIT_PER_MINUTE: '1' };
+    const body = { token, name: 'A子', votes: [{ candidateId: poll.candidates[0]!.id, value: 'yes' }] };
+
+    expect((await post(app, db, '/api/invite/answer', body, cookie, bindings)).status).toBe(200);
+    const limited = await post(app, db, '/api/invite/answer', body, cookie, bindings);
+    expect(limited.status).toBe(429);
+    expect((await limited.json() as { message: string }).message).toBe('少し時間をおいてもう一度お試しください');
   });
 });
