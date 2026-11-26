@@ -113,7 +113,7 @@ export function inviteRoutes(subjectOf: GetSubject) {
       10,
     )) return rateLimited(c);
 
-    // リンク単位の簡易レート制限: 1時間に新しいゲスト回答者は30人まで。ゲスト識別子を取り直した連投への抑止。
+    // 調整単位の簡易レート制限: 1時間に新しいゲスト回答者は30人まで。ゲスト識別子を取り直した連投への抑止。
     // 認証済みメンバーは本人を特定できるため枠の対象外。既に回答済みの人の変更は制限しない
     const existing = await c.env.DB.prepare(
       `SELECT id FROM answers WHERE poll_id = ? AND respondent_key = ?`
