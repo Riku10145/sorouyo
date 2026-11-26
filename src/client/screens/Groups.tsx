@@ -89,7 +89,7 @@ export function Groups() {
           ? <section className="card group-create"><h2>グループを作成</h2>
             <GroupForm submitLabel="作成する" onSubmit={async (name, color) => {
               const created = await createGroup(name, color);
-              if (created.status === 409) return `作成できるグループは${GROUP_CREATION_LIMIT}件までです。一覧から不要なグループを開いて削除すると、また作成できます。`;
+              if (created.status === 409) return `作成できるグループは${GROUP_CREATION_LIMIT}件までです。一覧から不要なグループを開き、作成済みが${GROUP_CREATION_LIMIT - 1}件以下になるまで削除すると、また作成できます。`;
               if (!created.group) return '作成できませんでした';
               toast('グループを作成しました');
               window.location.href = `/groups/${created.group.id}`;

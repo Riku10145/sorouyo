@@ -30,7 +30,7 @@ test('group creation limit explains how to free capacity without clearing the en
     await page.getByRole('button', { name: '作成する' }).click();
 
     await page.getByRole('alert').filter({ hasText: '作成できるグループは5件までです。' }).waitFor();
-    await page.getByText('一覧から不要なグループを開いて削除すると、また作成できます。').waitFor();
+    await page.getByText('一覧から不要なグループを開き、作成済みが4件以下になるまで削除すると、また作成できます。').waitFor();
     assert.equal(await page.getByLabel('グループ名').inputValue(), '上限後のグループ');
     assert.equal(await page.getByRole('radio', { name: '色 #4E8A5A' }).getAttribute('aria-checked'), 'true');
     assert.deepEqual(posts, [{ name: '上限後のグループ', color: '#4E8A5A' }]);
