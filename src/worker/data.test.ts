@@ -1218,7 +1218,9 @@ describe('data', () => {
     // 計測済みなら、全件削除後の再作成でも別の利用開始を増やさない
     expect((await mutate(app, db, 'DELETE', `/api/groups/${ownGroup.id}`, null, memberWithGuest)).status).toBe(204);
     expect((await mutate(app, db, 'DELETE', `/api/groups/${secondGroup.id}`, null, memberWithGuest)).status).toBe(204);
-    expect((await post(app, db, '/api/groups', { name: '作り直し' }, memberWithGuest)).status).toBe(201);
+    const recreated = await post(app, db, '/api/groups', { name: '作り直し' }, memberWithGuest);
+    expect(recreated.status).toBe(201);
+    const { group: recreatedGroup } = await recreated.json() as { group: { id: string } };
     let usageRows = await db.prepare(`SELECT * FROM analytics_events WHERE event_type = 'usage_start'`).all() as { results: unknown[] };
     expect(usageRows.results).toHaveLength(1);
 
@@ -1233,6 +1235,20 @@ describe('data', () => {
 
     const serialized = JSON.stringify(await db.prepare(`SELECT * FROM analytics_events`).all());
     for (const secret of ['ゲスト花子', '秘密のひとこと', token]) expect(serialized.includes(secret)).toBe(false);
+
+    // 別招待に回答してから作り直しても、visitor-wide な利用開始は重複しない
+    const { token: secondToken } = await setupPoll(app, db, host);
+    const secondOpened = await post(app, db, '/api/invite', { token: secondToken }, guestCookie);
+    const { poll: secondPoll } = await secondOpened.json() as { poll: { candidates: { id: string }[] } };
+    expect((await post(app, db, '/api/invite/answer', {
+      token: secondToken,
+      name: 'ゲスト花子',
+      votes: [{ candidateId: secondPoll.candidates[0]!.id, value: 'yes' }],
+    }, guestCookie)).status).toBe(200);
+    expect((await mutate(app, db, 'DELETE', `/api/groups/${recreatedGroup.id}`, null, memberWithGuest)).status).toBe(204);
+    expect((await post(app, db, '/api/groups', { name: '別招待後の作り直し' }, memberWithGuest)).status).toBe(201);
+    usageRows = await db.prepare(`SELECT * FROM analytics_events WHERE event_type = 'usage_start'`).all() as { results: unknown[] };
+    expect(usageRows.results).toHaveLength(1);
   });
 
   test('計測: Cookieなしの回答でも発行Cookieと回答者が一致し、計測表未適用でも招待は開ける', async () => {
