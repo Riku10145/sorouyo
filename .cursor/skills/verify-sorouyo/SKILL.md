@@ -58,6 +58,7 @@ node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs drive sample-calendar 
 node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs drive sample-poll-status --run-dir "$RUN_DIR"
 node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs drive invite-error-states --run-dir "$RUN_DIR"
 node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs drive login-boundary --run-dir "$RUN_DIR"
+node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs drive plan-free-notice --run-dir "$RUN_DIR"
 ```
 
 helper が使う代表 selector は次のとおりです。手動で再現するときもこれらを優先してください。
@@ -66,6 +67,7 @@ helper が使う代表 selector は次のとおりです。手動で再現する
 - ゲスト回答: 候補日ごとの role `radiogroup`、radio `○ 参加`・`△ 未定`・`× 欠席`、label `お名前`・`ひとこと（任意）`、button `回答を送る`。
 - サンプル回答状況: button `11月28日（土） 19:00〜、参加1、未定0、欠席2。この候補日を選ぶ`、button `11月28日(土)に確定する`。
 - ログイン境界: heading `ログインが必要です`、link `サンプルの日程調整画面を見る`。
+- プラン: link `プラン`、heading `プラン`・`ご案内`。
 
 ## Evidence
 
@@ -108,4 +110,4 @@ drive       feature map にある1つの user journey を browser で実行し�
 cleanup     起動した process、fixture、scratch state を削除し、evidence を残す
 ```
 
-`drive` の対象: `guest-answer`、`sample-calendar`、`sample-poll-status`、`invite-error-states`、`login-boundary`。
+`drive` の対象: `guest-answer`、`sample-calendar`、`sample-poll-status`、`invite-error-states`、`login-boundary`、`plan-free-notice`。
