@@ -100,6 +100,31 @@ test('checks an existing version when its resolved URL changes', async () => {
   assert.ok(result.failures.some((failure) => /lockfile resolved does not match registry dist\.tarball/.test(failure)));
 });
 
+test('checks a recombined integrity and resolved pair', async () => {
+  const correctResolved = 'https://registry.npmjs.org/example.tgz';
+  const otherResolved = 'https://registry.npmjs.org/other.tgz';
+  const baseLock = {
+    lockfileVersion: 3,
+    packages: {
+      'node_modules/correct': { name: 'example', version: '1.0.0', integrity, resolved: correctResolved },
+      'node_modules/other': { name: 'example', version: '1.0.0', integrity: 'sha512-other', resolved: otherResolved },
+    },
+  };
+  const recombinedLock = {
+    lockfileVersion: 3,
+    packages: {
+      'node_modules/example': { version: '1.0.0', integrity, resolved: otherResolved },
+    },
+  };
+  const result = await checkReleaseAge(recombinedLock, {
+    baseLock,
+    now,
+    fetchMetadata: response({ '1.0.0': '2026-11-01T00:00:00Z' }),
+  });
+  assert.equal(result.checked, 1);
+  assert.ok(result.failures.some((failure) => /lockfile resolved does not match registry dist\.tarball/.test(failure)));
+});
+
 test('identical base skips all requests; empty base checks all versions', async () => {
   assert.deepEqual(await checkReleaseAge(lock, {
     baseLock: lock,
