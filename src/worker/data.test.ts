@@ -17,13 +17,14 @@ import { buildDataRoutes, type DataEnv } from './data';
 
 // --- D1 を node:sqlite でシムする（migrations/*.sql をそのまま適用） ---
 
-function makeDb(beforeJoinInviteExpiryMigration?: (db: DatabaseSync) => void): D1Database {
+function makeDb(beforeJoinInviteExpiryMigration?: (db: DatabaseSync) => void, includeAnalytics = true): D1Database {
   const db = new DatabaseSync(':memory:');
   const apply = (file: string) => db.exec(readFileSync(new URL(`../../migrations/${file}`, import.meta.url), 'utf8'));
   // 新しい migration を足したらここにも列挙する
   for (const file of ['0001_init.sql', '0002_invite_creator.sql']) apply(file);
   beforeJoinInviteExpiryMigration?.(db);
   apply('0003_join_invite_expiry.sql');
+  if (includeAnalytics) apply('0004_analytics_events.sql');
   db.exec('PRAGMA foreign_keys = ON');
   const prepare = (sql: string) => {
     let args: unknown[] = [];
@@ -106,6 +107,7 @@ function testApp(db: D1Database) {
 const env = (db: D1Database, extra: Partial<DataEnv> = {}): DataEnv => ({
   DB: db,
   WORKOS_COOKIE_PASSWORD: 'x'.repeat(40),
+  ANALYTICS_TOKEN: 'analytics-secret',
   ...extra,
 });
 
@@ -686,6 +688,77 @@ describe('data', () => {
     expect(inv.accepting).toBe(false);
     expect((await post(app, db, '/api/invite/answer', { token, name: 'x', votes: [{ candidateId: inv.candidates[0]!.id, value: 'yes' }] }, await guest(app, db))).status).toBe(410);
   });
+
+  test('計測: 有効リンク訪問と回答完了を匿名IDで重複除外し、30日の日別率を返す', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const { token } = await setupPoll(app, db, host);
+    const guestCookie = await guest(app, db);
+
+    // 無効リンクは分母に入らない。有効リンクの再読込は同じ匿名訪問者なら1回だけ
+    expect((await post(app, db, '/api/invite', { token: 'invalid' }, guestCookie)).status).toBe(404);
+    const firstOpen = await post(app, db, '/api/invite', { token }, guestCookie);
+    expect(firstOpen.status).toBe(200);
+    expect((await post(app, db, '/api/invite', { token }, guestCookie)).status).toBe(200);
+    const { poll } = await firstOpen.json() as { poll: { candidates: { id: string }[] } };
+    const candidateId = poll.candidates[0]!.id;
+    const answerBody = { token, name: '秘密の名前', comment: '秘密のメモ', votes: [{ candidateId, value: 'yes' }] };
+    expect((await post(app, db, '/api/invite/answer', answerBody, guestCookie)).status).toBe(200);
+    // 回答の更新再送は分子を増やさない
+    expect((await post(app, db, '/api/invite/answer', answerBody, guestCookie)).status).toBe(200);
+
+    expect((await req(app, db, '/api/analytics/funnel')).status).toBe(401);
+    const res = await req(app, db, '/api/analytics/funnel', { headers: { authorization: 'Bearer analytics-secret' } });
+    expect(res.status).toBe(200);
+    const funnel = await res.json() as {
+      range: { days: number };
+      totals: { validLinkVisits: number; answerCompletions: number; completionRate: number | null };
+      daily: { date: string; validLinkVisits: number; answerCompletions: number; completionRate: number | null }[];
+    };
+    expect(funnel.range.days).toBe(30);
+    expect(funnel.daily).toHaveLength(30);
+    expect(funnel.totals).toEqual({ validLinkVisits: 1, answerCompletions: 1, completionRate: 1 });
+    const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
+    expect(funnel.daily.find(day => day.date === today)).toMatchObject({ validLinkVisits: 1, answerCompletions: 1, completionRate: 1 });
+
+    // 計測イベントには表示名・予定名・コメント・リンク秘密部分を保存しない
+    const rows = await db.prepare(`SELECT * FROM analytics_events`).all() as { results: Record<string, unknown>[] };
+    expect(rows.results).toHaveLength(2);
+    const serialized = JSON.stringify(rows.results);
+    for (const secret of ['秘密の名前', '秘密のメモ', '花見', token]) expect(serialized.includes(secret)).toBe(false);
+  });
+
+  test('計測: Cookieなしの回答でも発行Cookieと回答者が一致し、計測表未適用でも招待は開ける', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const { token } = await setupPoll(app, db, host);
+    const opened = await post(app, db, '/api/invite', { token });
+    const { poll } = await opened.json() as { poll: { candidates: { id: string }[] } };
+
+    // 有効CookieなしのAPI送信では、回答保存に使ったIDそのものをブラウザへ返す
+    const answer = await post(app, db, '/api/invite/answer', {
+      token, name: '直接送信', votes: [{ candidateId: poll.candidates[0]!.id, value: 'yes' }],
+    });
+    expect(answer.status).toBe(200);
+    const issued = answer.headers.getSetCookie().find(v => v.startsWith(`${GUEST_COOKIE}=`))!.split(';')[0]!;
+    const reopened = await post(app, db, '/api/invite', { token }, issued);
+    expect(((await reopened.json() as { poll: { ownAnswer: { name: string } | null } }).poll.ownAnswer)?.name).toBe('直接送信');
+
+    // 新しい計測テーブルの適用が遅れていても、既存の招待表示と回答は止めない
+    const oldDb = makeDb(undefined, false);
+    const oldApp = testApp(oldDb);
+    const oldHost = await login(oldApp, oldDb, 'code_host');
+    const oldPoll = await setupPoll(oldApp, oldDb, oldHost);
+    expect((await post(oldApp, oldDb, '/api/invite', { token: oldPoll.token })).status).toBe(200);
+    const oldInvite = await post(oldApp, oldDb, '/api/invite', { token: oldPoll.token });
+    const oldCandidate = (await oldInvite.json() as { poll: { candidates: { id: string }[] } }).poll.candidates[0]!.id;
+    expect((await post(oldApp, oldDb, '/api/invite/answer', {
+      token: oldPoll.token, name: '互換確認', votes: [{ candidateId: oldCandidate, value: 'yes' }],
+    })).status).toBe(200);
+  });
+
 
   test('回答API: 回答トークン×ゲスト識別子のレート制限は429と案内文を返す', async () => {
     const db = makeDb();
