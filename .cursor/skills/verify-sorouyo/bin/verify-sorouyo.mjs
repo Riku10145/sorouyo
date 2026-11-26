@@ -443,6 +443,10 @@ function answerRows(stateDir, pollId) {
     SELECT a.id AS answer_id, a.display_name, a.comment, v.candidate_id, v.value
     FROM answers a LEFT JOIN votes v ON v.answer_id = a.id
     WHERE a.poll_id = ${quote(pollId)}
+      AND a.id = (
+        SELECT id FROM answers WHERE poll_id = ${quote(pollId)}
+        ORDER BY updated_at DESC, rowid DESC LIMIT 1
+      )
     ORDER BY v.candidate_id
   `).results;
 }
@@ -496,6 +500,7 @@ async function driveGuestAnswer(runDir, cdpUrl) {
     const rows = answerRows(p.stateDir, fixture.pollId);
     writeJson(path.join(directory, 'db-answer.json'), rows);
     const byCandidate = Object.fromEntries(rows.map(row => [row.candidate_id, row.value]));
+    assert.equal(rows[0]?.answer_id, emptyRows[0]?.answer_id, 'editing must update the same answer row');
     assert.equal(rows[0]?.display_name, fixture.respondentName);
     assert.equal(rows[0]?.comment, fixture.comment);
     for (const [index, candidate] of fixture.candidates.entries()) {
@@ -584,7 +589,7 @@ async function driveSamplePollStatus(runDir, cdpUrl) {
     await page.getByRole('link', { name: 'サンプルの日程調整画面を見る' }).click();
     await page.getByRole('heading', { name: '餃子の会' }).waitFor();
     await page.getByRole('heading', { name: 'ひとこと' }).waitFor();
-    await page.locator('.comment-list li').filter({ hasText: 'はな' }).filter({ hasText: '19時以降なら参加できます' }).first().waitFor();
+    await page.getByRole('region', { name: '回答のひとこと' }).getByRole('listitem').filter({ hasText: 'はな' }).filter({ hasText: '19時以降なら参加できます' }).first().waitFor();
     await capture(page, directory, '01-status');
     await page.getByRole('button', { name: /11月28日（土） 19:00〜.*この候補日を選ぶ/ }).click();
     await page.getByRole('article', { name: /11月28日（土） 19:00〜（選択中）/ }).waitFor();
