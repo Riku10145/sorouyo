@@ -6,6 +6,7 @@ import { type GetSubject, pollTarget, memberRole } from '../../lib/access';
 import { type GroupRow, type PollRow, type CandidateRow, type AnswerRow, type VoteRow, type EventRow, all } from '../../lib/db';
 import { sha256, newToken } from '../../lib/invites';
 import { can } from '../../lib/permissions';
+import { isPollAccepting } from '../../lib/polls';
 import { now } from '../../lib/time';
 import { json } from '../../validation';
 import { newAnswerInvite } from './invites';
@@ -26,7 +27,7 @@ export function pollsRoutes(subjectOf: GetSubject) {
     const stmts = [
       c.env.DB.prepare(
         `INSERT INTO polls (id, group_id, creator_id, title, deadline_at, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)`
-      // 締切はミリ秒つきISOに正規化して保存し、 OPEN_WHERE の文字列比較と形式を揃える
+      // 締切はミリ秒つきISOに正規化して保存し、 ACCEPTING_POLL_WHERE の文字列比較と形式を揃える
       ).bind(pollId, groupId, subject.userId, body.title, body.deadlineAt ? new Date(body.deadlineAt).toISOString() : null, now()),
       ...body.candidates.map((cand, i) =>
         c.env.DB.prepare(`INSERT INTO candidates (id, poll_id, position, date, start_time) VALUES (?, ?, ?, ?, ?)`)
@@ -73,7 +74,7 @@ export function pollsRoutes(subjectOf: GetSubject) {
         title: p.title,
         status: p.status,
         deadlineAt: p.deadline_at,
-        accepting: p.status === 'open' && !p.reopen_pending && (!p.deadline_at || p.deadline_at > at),
+        accepting: isPollAccepting(p, at),
         group: { id: p.group_id, name: p.group_name, color: p.group_color },
         creator: p.creator_id === subject.userId,
         candidatesCount: p.candidate_count,
