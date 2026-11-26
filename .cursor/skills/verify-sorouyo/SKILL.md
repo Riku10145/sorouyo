@@ -69,7 +69,7 @@ helper が使う代表 selector は次のとおりです。手動で再現する
 
 ## Evidence
 
-証跡は `$RUN_DIR/evidence/<feature>/` に残ります。各 feature の `summary.json`、操作前後の PNG screenshot、ARIA snapshot を確認してください。失敗した drive は `summary.json` に `ok: false` と失敗理由を残すので、途中まで生成された画像を成功証跡と取り違えないでください。`guest-answer` には `db-answer.json` もあり、ブラウザ送信が孤立した local D1 の `answers`・`votes` 行として読み返せたことを示します。
+証跡は `$RUN_DIR/evidence/<feature>/` に残ります。各 feature の `summary.json`、操作前後の PNG screenshot、ARIA snapshot を確認してください。有効な run metadata があるインスタンスで失敗した drive は `summary.json` に `ok: false` と失敗理由を残すので、途中まで生成された画像を成功証跡と取り違えないでください。run metadata が無い、または壊れている preflight failure は journey を開始していないため、既存証跡を上書きせず stderr だけに報告します。`guest-answer` には `db-answer.json` もあり、ブラウザ送信が孤立した local D1 の `answers`・`votes` 行として読み返せたことを示します。
 
 証明の基準:
 
