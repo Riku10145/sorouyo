@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { Context } from 'hono';
+import type { Context, Next } from 'hono';
 import { z } from 'zod';
 import { validator } from 'hono/validator';
 import { voteSchema } from '../shared/schema';
@@ -13,6 +13,10 @@ import {
 export interface DataEnv extends AuthEnv {
   DB: D1Database;
   ANALYTICS_TOKEN?: string;
+  ANSWER_RESPONDENT_RATE_LIMIT?: RateLimit;
+  ANSWER_IP_RATE_LIMIT?: RateLimit;
+  ANSWER_RESPONDENT_RATE_LIMIT_PER_MINUTE?: string;
+  ANSWER_IP_RATE_LIMIT_PER_MINUTE?: string;
 }
 
 type C = Context<{ Bindings: DataEnv }>;
@@ -27,6 +31,45 @@ const sha256 = async (text: string) =>
     .map(b => b.toString(16).padStart(2, '0')).join('');
 
 const newToken = () => crypto.randomUUID().replaceAll('-', '') + crypto.randomUUID().replaceAll('-', '');
+
+const RATE_LIMIT_MESSAGE = '少し時間をおいてもう一度お試しください';
+const rateLimited = (c: C) => c.json({ error: 'rate_limited', message: RATE_LIMIT_MESSAGE } as const, 429);
+
+const positiveInt = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+// ユニットテストなどbindingがない環境向けのフォールバック。アプリごとにカウンターを持ち、
+// 独立したテスト同士が回数枠を共有しないようにする。本番・ローカルWorkerでは wrangler.jsonc の
+// Rate Limiting binding が使われ、上限もそちらの simple.limit で変更する。
+const makeAnswerLimiter = () => {
+  const fallbackBuckets = new Map<string, { count: number; resetAt: number }>();
+  const fallbackLimit = (key: string, limit: number, at = Date.now()) => {
+    if (fallbackBuckets.size >= 1000) {
+      for (const [bucketKey, bucket] of fallbackBuckets) if (bucket.resetAt <= at) fallbackBuckets.delete(bucketKey);
+      // 期限切れだけでは減らない場合も、テスト用フォールバックがメモリを食い続けないよう最古のキーを外す
+      if (fallbackBuckets.size >= 1000) fallbackBuckets.delete(fallbackBuckets.keys().next().value!);
+    }
+    const bucket = fallbackBuckets.get(key);
+    if (!bucket || bucket.resetAt <= at) {
+      fallbackBuckets.set(key, { count: 1, resetAt: at + 60_000 });
+      return true;
+    }
+    if (bucket.count >= limit) return false;
+    bucket.count += 1;
+    return true;
+  };
+  return async (
+    binding: RateLimit | undefined, key: string, configuredLimit: string | undefined, fallbackDefault: number,
+  ) => binding
+    ? (await binding.limit({ key })).success
+    : fallbackLimit(key, positiveInt(configuredLimit, fallbackDefault));
+};
+
+// 本番ではCloudflareが付けるIPを使う。ローカル/テストではヘッダが無いことがあるため、
+// フォールバック制限が効くよう同一の未知送信元として扱う。
+const clientIp = (c: C) => c.req.header('cf-connecting-ip')?.trim() || 'unknown';
 
 // --- DB行 -------------------------------------------------------------------
 
@@ -51,6 +94,7 @@ interface EventRow {
 interface InviteRow {
   id: string; purpose: 'answer' | 'join'; poll_id: string | null; group_id: string | null;
   token_hash: string; expires_at: string | null; revoked_at: string | null; created_by: string | null;
+  created_at: string;
 }
 
 const all = <T>(stmt: Promise<{ results: T[] }>) => stmt.then(r => r.results);
@@ -103,20 +147,30 @@ const memberRole = async (c: C, groupId: string, userId: string) =>
     `SELECT role FROM memberships WHERE group_id = ? AND user_id = ?`
   ).bind(groupId, userId).first()))?.role;
 
+const JOIN_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** 期限列がない参加リンクは、移行後も旧Workerで発行されたものとして発行時刻から7日後を期限に使う。 */
+const joinInviteExpiresAt = (invite: Pick<InviteRow, 'created_at' | 'expires_at'>) =>
+  invite.expires_at ?? new Date(Date.parse(invite.created_at) + JOIN_INVITE_TTL_MS).toISOString();
+
 const findInvite = async (c: C, token: string) => {
   const hash = await sha256(token);
   const invite = await get<InviteRow>(c.env.DB.prepare(
-    `SELECT id, purpose, poll_id, group_id, token_hash, expires_at, revoked_at, created_by FROM invites WHERE token_hash = ?`
+    `SELECT id, purpose, poll_id, group_id, token_hash, expires_at, revoked_at, created_by, created_at FROM invites WHERE token_hash = ?`
   ).bind(hash).first());
-  if (!invite || invite.revoked_at || (invite.expires_at && invite.expires_at <= now())) return undefined;
+  if (!invite || invite.revoked_at) return undefined;
+  const expired = invite.purpose === 'join'
+    ? joinInviteExpiresAt(invite) <= now()
+    : invite.expires_at && invite.expires_at <= now();
+  if (expired) return undefined;
   return invite;
 };
 
-const newInvite = async (c: C, purpose: 'answer' | 'join', ref: { pollId?: string; groupId?: string }, createdBy?: string) => {
+const newAnswerInvite = async (c: C, pollId: string, createdBy?: string) => {
   const token = newToken();
   await c.env.DB.prepare(
-    `INSERT INTO invites (id, purpose, poll_id, group_id, token_hash, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).bind(crypto.randomUUID(), purpose, ref.pollId ?? null, ref.groupId ?? null, await sha256(token), createdBy ?? null, now()).run();
+    `INSERT INTO invites (id, purpose, poll_id, token_hash, created_by, created_at) VALUES (?, 'answer', ?, ?, ?, ?)`
+  ).bind(crypto.randomUUID(), pollId, await sha256(token), createdBy ?? null, now()).run();
   return token;
 };
 
@@ -144,6 +198,41 @@ async function recordAnalytics(
     console.warn('analytics event write failed');
   }
 }
+
+const joinInviteState = (invite: Pick<InviteRow, 'created_at' | 'expires_at' | 'revoked_at'>, at = now()) => {
+  if (invite.revoked_at) return 'revoked' as const;
+  if (joinInviteExpiresAt(invite) <= at) return 'expired' as const;
+  return 'active' as const;
+};
+
+const presentJoinInvite = (invite: InviteRow) => ({
+  id: invite.id,
+  createdAt: invite.created_at,
+  expiresAt: joinInviteExpiresAt(invite),
+  state: joinInviteState(invite),
+} as const);
+
+const latestJoinInvite = async (c: C, groupId: string) => get<InviteRow>(c.env.DB.prepare(
+  `SELECT id, purpose, poll_id, group_id, token_hash, expires_at, revoked_at, created_by, created_at
+   FROM invites WHERE purpose = 'join' AND group_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`
+).bind(groupId).first());
+
+/** 参加リンクはグループごと1本だけ有効にするため、旧リンクの失効と新リンクの作成を同一バッチで行う。 */
+const reissueJoinInvite = async (c: C, groupId: string, createdBy: string) => {
+  const token = newToken();
+  const id = crypto.randomUUID();
+  const createdAtMs = Date.now();
+  const createdAt = new Date(createdAtMs).toISOString();
+  const expiresAt = new Date(createdAtMs + JOIN_INVITE_TTL_MS).toISOString();
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE invites SET revoked_at = ? WHERE purpose = 'join' AND group_id = ? AND revoked_at IS NULL`)
+      .bind(createdAt, groupId),
+    c.env.DB.prepare(
+      `INSERT INTO invites (id, purpose, group_id, token_hash, expires_at, created_by, created_at) VALUES (?, 'join', ?, ?, ?, ?, ?)`
+    ).bind(id, groupId, await sha256(token), expiresAt, createdBy, createdAt),
+  ]);
+  return { token, invite: { id, createdAt, expiresAt, state: 'active' as const } };
+};
 
 // --- 回答の書き込み ----------------------------------------------------------
 
@@ -223,6 +312,17 @@ const json = <T extends z.ZodType>(schema: T) =>
 
 export function buildDataRoutes(getDeps: GetAuthDeps) {
   const subjectOf = makeSubjectOf(getDeps);
+  const limitAnswer = makeAnswerLimiter();
+  /** 送信元IP制限は入力検証より先に行い、不正な本文の連投もカウントする。 */
+  const limitAnswerIp = async (c: C, next: Next) => {
+    if (!await limitAnswer(
+      c.env.ANSWER_IP_RATE_LIMIT,
+      `answer-ip:${clientIp(c)}`,
+      c.env.ANSWER_IP_RATE_LIMIT_PER_MINUTE,
+      60,
+    )) return rateLimited(c);
+    await next();
+  };
   return new Hono<{ Bindings: DataEnv }>()
 
   // ログイン中の利用者が所属するグループ一覧（別ブラウザでも同じ結果が返る）
@@ -252,7 +352,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     return c.json({ group: { id, name: body.data.name, color: body.data.color ?? null, role: 'admin' } } as const, 201);
   })
 
-  // グループ参加用リンクの発行（adminのみ）
+  // グループ参加用リンクの発行・再発行（adminのみ）。有効なリンクは1本だけで、7日で期限切れになる
   .post('/groups/:id/invites', async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const subject = await subjectOf(c);
@@ -261,8 +361,29 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if ((await memberRole(c, groupId, subject.userId)) !== 'admin') {
       return c.json({ error: 'forbidden' } as const, 403);
     }
-    const token = await newInvite(c, 'join', { groupId }, subject.userId);
-    return c.json({ token } as const, 201);
+    const { token, invite } = await reissueJoinInvite(c, groupId, subject.userId);
+    return c.json({ token, invite } as const, 201);
+  })
+
+  // 参加リンクの無効化（adminのみ）。トークンではなく invitation id を指定し、リンク漏洩時に即座に止められるようにする
+  .post('/groups/:id/invites/:inviteId/revoke', async (c) => {
+    if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
+    const subject = await subjectOf(c);
+    if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
+    const groupId = c.req.param('id');
+    if ((await memberRole(c, groupId, subject.userId)) !== 'admin') {
+      return c.json({ error: 'forbidden' } as const, 403);
+    }
+    const invite = await get<InviteRow>(c.env.DB.prepare(
+      `SELECT id, purpose, poll_id, group_id, token_hash, expires_at, revoked_at, created_by, created_at
+       FROM invites WHERE id = ? AND purpose = 'join' AND group_id = ?`
+    ).bind(c.req.param('inviteId'), groupId).first());
+    if (!invite) return c.json({ error: 'not_found' } as const, 404);
+    const revokedAt = invite.revoked_at ?? now();
+    if (!invite.revoked_at) {
+      await c.env.DB.prepare(`UPDATE invites SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`).bind(revokedAt, invite.id).run();
+    }
+    return c.json({ invite: presentJoinInvite({ ...invite, revoked_at: revokedAt }) } as const, 200);
   })
 
   // 参加リンクのプレビュー。リンクを持つ人にグループ名・招待元・参加すると見える情報だけを出す
@@ -327,7 +448,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!role) return c.json({ error: 'forbidden' } as const, 403);
     const group = await get<GroupRow>(c.env.DB.prepare(`SELECT id, name, color FROM groups WHERE id = ?`).bind(groupId).first());
     if (!group) return c.json({ error: 'not_found' } as const, 404);
-    const [members, counts] = await Promise.all([
+    const [members, counts, joinInvite] = await Promise.all([
       all<{ user_id: string; display_name: string | null; email: string | null; role: 'admin' | 'member' }>(c.env.DB.prepare(
         `SELECT m.user_id, u.display_name, u.email, m.role FROM memberships m JOIN users u ON u.id = m.user_id
          WHERE m.group_id = ? ORDER BY m.created_at`
@@ -336,11 +457,13 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
         `SELECT (SELECT COUNT(*) FROM events WHERE group_id = ?) AS events,
                 (SELECT COUNT(*) FROM polls WHERE group_id = ?) AS polls`
       ).bind(groupId, groupId).first()),
+      latestJoinInvite(c, groupId),
     ]);
     return c.json({
       group: { ...group, role },
       members: members.map(m => ({ id: m.user_id, name: m.display_name ?? m.email ?? '名無し', role: m.role, you: m.user_id === subject.userId })),
       counts: { events: counts?.events ?? 0, polls: counts?.polls ?? 0, members: members.length },
+      joinInvite: role === 'admin' && joinInvite ? presentJoinInvite(joinInvite) : null,
     } as const);
   })
 
@@ -438,7 +561,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!(await memberRole(c, poll.group_id, subject.userId))) return c.json({ error: 'forbidden' } as const, 403);
     // 回答リンクはベアラートークン。再発行で既存リンクを失効させると、
     // 主催がコピーするたびに共有済みリンクが死ぬため、旧リンクはそのまま有効にしておく
-    const token = await newInvite(c, 'answer', { pollId: poll.id }, subject.userId);
+    const token = await newAnswerInvite(c, poll.id, subject.userId);
     return c.json({ token } as const, 201);
   })
 
@@ -724,7 +847,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
   })
 
   // ゲスト・メンバーの回答（○△×）。同一送信の再試行は (poll_id, respondent_key) で1件に統合
-  .post('/invite/answer', json(answerBody), async (c) => {
+  .post('/invite/answer', limitAnswerIp, json(answerBody), async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const body = { data: c.req.valid('json') };
     const invite = await findInvite(c, body.data.token);
@@ -742,6 +865,12 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
 
     const ids = subject.userId ? { userId: subject.userId } : { guestId: subject.guestId! };
     const key = ids.userId ? `u:${ids.userId}` : `g:${ids.guestId}`;
+    if (!await limitAnswer(
+      c.env.ANSWER_RESPONDENT_RATE_LIMIT,
+      `answer-respondent:${invite.token_hash}:${key}`,
+      c.env.ANSWER_RESPONDENT_RATE_LIMIT_PER_MINUTE,
+      10,
+    )) return rateLimited(c);
 
     // リンク単位の簡易レート制限: 1時間に新しい回答者は30人まで。ゲスト識別子を取り直した連投への抑止。
     // 既に回答済みの人の変更は制限しない
@@ -753,7 +882,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
       const recent = await get<{ n: number }>(c.env.DB.prepare(
         `SELECT COUNT(DISTINCT respondent_key) AS n FROM answers WHERE poll_id = ? AND created_at > ?`
       ).bind(poll.id, hourAgo).first());
-      if ((recent?.n ?? 0) >= 30) return c.json({ error: 'rate_limited' } as const, 429);
+      if ((recent?.n ?? 0) >= 30) return rateLimited(c);
     }
 
     // 対象調整に属する候補だけを受理し、同一候補の重複送信は最初の1件に絞る
