@@ -357,7 +357,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     return c.json({ groups } as const);
   })
 
-  // グループ作成。作成者はadminとして所属する。上限判定と挿入は1つのSQLにし、同時送信でも10件を超えないようにする
+  // グループ作成。作成者はadminとして所属する。上限判定と挿入は1つのSQLにし、同時送信でも上限を超えないようにする
   .post('/groups', json(createGroupBody), async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const subject = await subjectOf(c);
@@ -370,15 +370,17 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
         `INSERT INTO groups (id, name, color, created_by, created_at)
          SELECT ?, ?, ?, ?, ?
          WHERE (
+           SELECT COUNT(*) FROM groups WHERE created_by = ?
+         ) + (
            SELECT COUNT(*) FROM groups AS g
-           WHERE COALESCE(g.created_by, (
+           WHERE g.created_by IS NULL AND (
              SELECT m.user_id FROM memberships AS m
              WHERE m.group_id = g.id AND m.role = 'admin'
              ORDER BY m.created_at, m.user_id
              LIMIT 1
-           )) = ?
+           ) = ?
          ) < ?`
-      ).bind(id, body.data.name, body.data.color ?? null, subject.userId, at, subject.userId, GROUP_CREATION_LIMIT),
+      ).bind(id, body.data.name, body.data.color ?? null, subject.userId, at, subject.userId, subject.userId, GROUP_CREATION_LIMIT),
       c.env.DB.prepare(
         `INSERT INTO memberships (group_id, user_id, role, created_at)
          SELECT ?, ?, 'admin', ? WHERE EXISTS (SELECT 1 FROM groups WHERE id = ?)`
