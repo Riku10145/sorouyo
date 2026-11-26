@@ -580,6 +580,8 @@ async function driveGuestGroupStart(runDir, cdpUrl) {
   const summary = await withMobilePage(cdpUrl, async page => {
     await page.goto(fixture.url);
     await page.getByRole('heading', { name: fixture.title }).waitFor();
+    await page.goto(fixture.url);
+    await page.getByRole('heading', { name: fixture.title }).waitFor();
     for (const [index, candidate] of fixture.candidates.entries()) {
       const groupLabel = `${dateLabel(candidate.date)} ${timeLabel(candidate.startTime)}`;
       await page.getByRole('radiogroup', { name: groupLabel }).getByRole('radio', { name: radioNames[votes[index]] }).click();
@@ -619,6 +621,7 @@ async function driveGuestGroupStart(runDir, cdpUrl) {
         'the guest completed a real API-backed invite answer in the browser',
         'the completion CTA links to /groups?create=1',
         'the signed-out /groups?create=1 route requires login and preserves the create intent in the login next parameter',
+        'reopening the invite in the same browser context did not duplicate invite_visit',
         'invite_visit, answer_submit, and usage_start_click rows were read back from isolated local D1 with the same anonymous visitor id and internal invite id',
         'analytics rows did not contain the invite token secret',
       ],
