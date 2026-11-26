@@ -3,6 +3,7 @@ import type { Context, Next } from 'hono';
 import { z } from 'zod';
 import { validator } from 'hono/validator';
 import { voteSchema } from '../shared/schema';
+import { GROUP_CREATION_LIMIT } from '../shared/model';
 import { can, type PollTarget, type Subject } from '../shared/permissions';
 import { getCookie } from 'hono/cookie';
 import {
@@ -73,7 +74,7 @@ const clientIp = (c: C) => c.req.header('cf-connecting-ip')?.trim() || 'unknown'
 
 // --- DB行 -------------------------------------------------------------------
 
-interface GroupRow { id: string; name: string; color: string | null }
+interface GroupRow { id: string; name: string; color: string | null; created_by?: string | null }
 interface MemberRow { group_id: string; user_id: string; role: 'admin' | 'member' }
 interface PollRow {
   id: string; group_id: string; creator_id: string; title: string;
@@ -356,19 +357,26 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     return c.json({ groups } as const);
   })
 
-  // グループ作成。作成者はadminとして所属する
+  // グループ作成。作成者はadminとして所属する。上限判定と挿入は1つのSQLにし、同時送信でも10件を超えないようにする
   .post('/groups', json(createGroupBody), async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const subject = await subjectOf(c);
     if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
     const body = { data: c.req.valid('json') };
     const id = crypto.randomUUID();
-    await c.env.DB.batch([
-      c.env.DB.prepare(`INSERT INTO groups (id, name, color, created_at) VALUES (?, ?, ?, ?)`)
-        .bind(id, body.data.name, body.data.color ?? null, now()),
-      c.env.DB.prepare(`INSERT INTO memberships (group_id, user_id, role, created_at) VALUES (?, ?, 'admin', ?)`)
-        .bind(id, subject.userId, now()),
+    const at = now();
+    const results = await c.env.DB.batch([
+      c.env.DB.prepare(
+        `INSERT INTO groups (id, name, color, created_by, created_at)
+         SELECT ?, ?, ?, ?, ?
+         WHERE (SELECT COUNT(*) FROM groups WHERE created_by = ?) < ?`
+      ).bind(id, body.data.name, body.data.color ?? null, subject.userId, at, subject.userId, GROUP_CREATION_LIMIT),
+      c.env.DB.prepare(
+        `INSERT INTO memberships (group_id, user_id, role, created_at)
+         SELECT ?, ?, 'admin', ? WHERE EXISTS (SELECT 1 FROM groups WHERE id = ?)`
+      ).bind(id, subject.userId, at, id),
     ]);
+    if (!results[0]?.meta?.changes) return c.json({ error: 'group_limit' } as const, 409);
     return c.json({ group: { id, name: body.data.name, color: body.data.color ?? null, role: 'admin' } } as const, 201);
   })
 
