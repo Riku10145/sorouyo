@@ -55,7 +55,7 @@ export type InviteResult = { status: 'ok'; poll: InvitePoll } | { status: 'inval
 
 const inviteRequests = new Map<string, Promise<InviteResult>>();
 
-/** 同じ招待の初回取得を1回に束ね、開発時のStrictMode二重実行でゲストCookieが競合しないようにする。 */
+/** 同時進行の同じ招待取得だけを1回に束ね、開発時のStrictMode二重実行でゲストCookieが競合しないようにする。 */
 export function fetchInvite(token: string): Promise<InviteResult> {
   const existing = inviteRequests.get(token);
   if (existing) return existing;
@@ -65,9 +65,8 @@ export function fetchInvite(token: string): Promise<InviteResult> {
     return { status: 'ok', poll: (await response.json()).poll as InvitePoll } as const;
   });
   inviteRequests.set(token, request);
-  request.then(result => {
-    if (result.status === 'error') inviteRequests.delete(token);
-  }, () => inviteRequests.delete(token));
+  const clear = () => inviteRequests.delete(token);
+  request.then(clear, clear);
   return request;
 }
 
