@@ -6,7 +6,9 @@ const now = Date.parse('2026-11-22T00:00:00Z');
 const integrity = 'sha512-test';
 const metadata = (time) => ({
   time,
-  versions: Object.fromEntries(Object.keys(time).map((version) => [version, { dist: { integrity } }])),
+  versions: Object.fromEntries(Object.keys(time).map((version) => [version, {
+    dist: { integrity, tarball: 'https://registry.npmjs.org/example.tgz' },
+  }])),
 });
 const lock = {
   lockfileVersion: 3,
@@ -72,6 +74,30 @@ test('base filtering ignores existing versions regardless of install path', asyn
   assert.equal(result.checked, 1);
   assert.deepEqual(urls, ['https://registry.npmjs.org/example']);
   assert.match(result.failures[0], /example@2.0.0/);
+});
+
+test('checks an existing version when its integrity changes', async () => {
+  const tampered = structuredClone(lock);
+  tampered.packages['node_modules/alias'].integrity = 'sha512-tampered';
+  const result = await checkReleaseAge(tampered, {
+    baseLock: lock,
+    now,
+    fetchMetadata: response({ '1.0.0': '2026-11-01T00:00:00Z', '2.0.0': '2026-11-01T00:00:00Z' }),
+  });
+  assert.equal(result.checked, 1);
+  assert.ok(result.failures.some((failure) => /lockfile integrity does not match registry dist\.integrity/.test(failure)));
+});
+
+test('checks an existing version when its resolved URL changes', async () => {
+  const tampered = structuredClone(lock);
+  tampered.packages['node_modules/alias'].resolved = 'https://registry.npmjs.org/tampered.tgz';
+  const result = await checkReleaseAge(tampered, {
+    baseLock: lock,
+    now,
+    fetchMetadata: response({ '1.0.0': '2026-11-01T00:00:00Z', '2.0.0': '2026-11-01T00:00:00Z' }),
+  });
+  assert.equal(result.checked, 1);
+  assert.ok(result.failures.some((failure) => /lockfile resolved does not match registry dist\.tarball/.test(failure)));
 });
 
 test('identical base skips all requests; empty base checks all versions', async () => {
