@@ -4,7 +4,7 @@ import { SAMPLE_ORGANIZER, type Poll } from '../../shared/sample';
 import { Icon, InviteHero, VoteMark, notReady, toast, type DisplayGroup } from '../design/ui';
 import { AppShell } from './Shell';
 import { LoginLink } from './Auth';
-import { confirmCandidate, fetchMemberPoll, issueInviteToken, toJst, useMe, type MemberPoll } from '../api';
+import { confirmCandidate, fetchMemberPoll, issueInviteToken, toJst, unconfirmPoll, useMe, type MemberPoll } from '../api';
 
 const guestUrl = (poll: Poll) => `${window.location.origin}/r#${poll.token}`;
 const deadlineText = (poll: Poll) => poll.deadline ? `${dateLabel(poll.deadline.date)}${poll.deadline.time}` : 'なし';
@@ -99,6 +99,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
       votes: remote.candidates.map(c => a.votes[c.id] ?? null),
     })),
     confirmedIndex: confirmedIndex !== null && confirmedIndex >= 0 ? confirmedIndex : null,
+    confirmedEventId: remote.confirmedEventId,
   };
   const link = async () => {
     issuedLink.current ??= issueInviteToken(remote.id).then(token =>
@@ -116,11 +117,12 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
     canViewTally={me?.user.id === remote.creatorId}
     viewerName={viewerName}
     onConfirm={index => confirmCandidate(remote.id, remote.candidates[index]!.id)}
+    onUnconfirm={eventId => unconfirmPoll(remote.id, eventId)}
     onCopyLink={link}
     onAnswerLink={async () => { const url = await link(); window.location.href = url; }} />;
 }
 
-export function PollStatus({ poll, selectedDate, expired = false, canConfirm = true, canViewTally = true, viewerName, onConfirm, onCopyLink, onAnswerLink }: {
+export function PollStatus({ poll, selectedDate, expired = false, canConfirm = true, canViewTally = true, viewerName, onConfirm, onUnconfirm, onCopyLink, onAnswerLink }: {
   poll: Poll; selectedDate: string; expired?: boolean;
   /** 確定権限がある操作者か（主催者のみ。メンバーには確定UIを出さない） */
   canConfirm?: boolean;
@@ -128,13 +130,15 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   canViewTally?: boolean;
   /** 回答前の自分を一覧に出すためのログイン中の表示名 */
   viewerName?: string;
-  onConfirm?: (index: number) => Promise<boolean>;
+  onConfirm?: (index: number) => Promise<string | null>;
+  onUnconfirm?: (eventId: string) => Promise<boolean>;
   onCopyLink?: () => Promise<string>;
   onAnswerLink?: () => void;
 }) {
   const best = bestCandidate(poll);
   const [chosen, setChosen] = useState(best);
   const [confirmed, setConfirmed] = useState<number | null>(poll.confirmedIndex ?? null);
+  const [confirmedEventId, setConfirmedEventId] = useState<string | null>(poll.confirmedEventId ?? null);
   const [completion, setCompletion] = useState<{ pollKey: string; index: number } | null>(null);
   const chosenCard = useRef<HTMLElement>(null);
   const picked = useRef(false);
@@ -182,14 +186,34 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
   const confirm = async () => {
     if (confirmed !== null || confirming.current) return; // 確定後・確定処理中の再確定はさせない
     confirming.current = true;
+    let eventId: string | null = null;
     let done = true;
-    try { done = onConfirm ? await onConfirm(chosen) : true; }
+    try {
+      eventId = onConfirm ? await onConfirm(chosen) : null;
+      done = onConfirm ? eventId !== null : true;
+    }
     catch { done = false; } // ネットワークエラー等でも失敗トーストに倒す
     finally { confirming.current = false; }
     if (done) {
       setConfirmed(chosen);
+      setConfirmedEventId(eventId);
       setCompletion({ pollKey, index: chosen });
     } else toast('確定できませんでした。すでに別の日に確定している可能性があります');
+  };
+  const unconfirming = useRef(false);
+  const unconfirm = async () => {
+    if (confirmed === null || unconfirming.current) return;
+    if (!window.confirm('確定を取り消しますか？カレンダーの予定は消え、編集した予定名・メモは再確定時の新しい予定に引き継がれません。回答は保持されたまま再調整できます。')) return;
+    unconfirming.current = true;
+    let ok = true;
+    try { ok = onUnconfirm && confirmedEventId ? await onUnconfirm(confirmedEventId) : !onUnconfirm; }
+    catch { ok = false; }
+    finally { unconfirming.current = false; }
+    if (!ok) { toast('確定を取り消せませんでした'); return; }
+    setConfirmed(null);
+    setConfirmedEventId(null);
+    toast('確定を取り消しました。新しい回答締切を設定してください');
+    if (poll.id) window.location.href = `/polls/${poll.id}/edit?reopen=1`;
   };
   const expiredBanner = expired && confirmed === null && <p className="expired-note" role="status">
     <Icon name="clock" size={18} />{canConfirm ? '回答締切を過ぎました。回答は締め切られていますが、候補を選んで確定できます。' : '回答締切を過ぎました。回答は締め切られています。'}
@@ -218,7 +242,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
     <div className="desk-only poll-toolbar">
       <p className="page-label">日程調整</p>
       <div className="toolbar-actions">
-        <button type="button" className="ghost-btn" onClick={() => notReady('候補日の追加')}><Icon name="plus" size={18} />候補日を追加</button>
+        {canConfirm && poll.id && <a className="ghost-btn" href={`/polls/${poll.id}/edit`}><Icon name="edit" size={18} />編集</a>}
         <button type="button" className="ghost-btn" onClick={copy}><Icon name="copy" size={18} />リンクをコピー</button>
         <button type="button" className="soft-btn" onClick={() => onAnswerLink ? onAnswerLink() : window.location.href = `/r#${poll.token}`}><Icon name="edit" size={18} />自分の回答を入力</button>
       </div>
@@ -232,7 +256,7 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
     <section className="m-only poll-list" aria-labelledby="poll-list-heading">
       <div className="section-head">
         <h2 id="poll-list-heading">候補日の回答</h2>
-        <button type="button" className="text-btn" onClick={() => notReady('候補日の追加')}><Icon name="plus" size={18} />候補日を追加</button>
+        {canConfirm && poll.id && <a className="text-btn" href={`/polls/${poll.id}/edit`}><Icon name="edit" size={18} />編集</a>}
       </div>
       {poll.candidates.map((item, index) => ({ item, index })).sort((a, b) => Number(b.index === chosen) - Number(a.index === chosen)).map(({ item, index }) => {
         const count = tally(poll, index);
@@ -273,9 +297,13 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
 
     {canConfirm && <div className="confirm-bar">
       <p className="desk-only best-note"><span>{confirmed !== null ? '確定した候補日' : chosen === best ? '参加できる人が最多' : '選択中の候補日'}</span><strong>{dateLabel((confirmed !== null ? poll.candidates[confirmed]! : candidate).date)} {timeLabel((confirmed !== null ? poll.candidates[confirmed]! : candidate).time)}</strong></p>
-      <button type="button" className="primary-btn wide" disabled={confirmed !== null} onClick={confirm}>
-        <Icon name="check" size={18} className="desk-only" />{confirmed !== null ? '確定しました' : <><span className="m-only">{confirmLabel}</span><span className="desk-only">この日程に確定する</span></>}
-      </button>
+      {confirmed !== null ? (onUnconfirm ? <button type="button" className="ghost-btn wide" onClick={unconfirm}>
+        <Icon name="close" size={18} className="desk-only" />確定を取り消して再調整
+      </button> : <button type="button" className="primary-btn wide" disabled>
+        <Icon name="check" size={18} className="desk-only" />確定しました
+      </button>) : <button type="button" className="primary-btn wide" onClick={confirm}>
+        <Icon name="check" size={18} className="desk-only" /><span className="m-only">{confirmLabel}</span><span className="desk-only">この日程に確定する</span>
+      </button>}
     </div>}
   </AppShell>;
 }

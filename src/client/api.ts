@@ -26,6 +26,9 @@ export interface MemberPoll {
   status: 'open' | 'confirmed';
   deadlineAt: string | null;
   confirmedCandidateId: string | null;
+  confirmedEventId: string | null;
+  editVersion: number;
+  reopenPending: boolean;
   group: { id: string; name: string; color: string | null };
   creatorId: string;
   hostName: string | null;
@@ -55,7 +58,7 @@ export async function fetchInvite(token: string): Promise<InviteResult> {
   return { status: 'ok', poll: (await response.json()).poll as InvitePoll };
 }
 
-export type AnswerResult = 'ok' | 'closed' | 'invalid' | 'forbidden' | 'rate_limited' | 'error';
+export type AnswerResult = 'ok' | 'closed' | 'invalid' | 'forbidden' | 'conflict' | 'rate_limited' | 'error';
 
 export async function submitAnswer(
   token: string, name: string, comment: string, votes: { candidateId: string; value: Vote }[],
@@ -65,6 +68,7 @@ export async function submitAnswer(
   if (response.status === 429) return 'rate_limited';
   if (response.status === 403) return 'forbidden';
   if (response.status === 404) return 'invalid';
+  if (response.status === 409) return 'conflict';
   return response.ok ? 'ok' : 'error';
 }
 
@@ -90,9 +94,10 @@ export async function fetchMemberPoll(id: string): Promise<{ status: number; pol
   return { status: 200, poll: (await response.json()).poll as MemberPoll };
 }
 
-export async function confirmCandidate(id: string, candidateId: string): Promise<boolean> {
+export async function confirmCandidate(id: string, candidateId: string): Promise<string | null> {
   const response = await api.api.polls[':id'].confirm.$post({ param: { id }, json: { candidateId } });
-  return response.ok;
+  if (!response.ok) return null;
+  return (await response.json()).event?.id ?? null;
 }
 
 export async function issueInviteToken(id: string): Promise<string | null> {
@@ -117,7 +122,7 @@ export interface GroupDetail {
   joinInvite: JoinInviteInfo | null;
 }
 export interface CalEvent {
-  id: string; date: string; startTime: string | null; title: string;
+  id: string; date: string; startTime: string | null; title: string; memo: string | null;
   group: { id: string; name: string; color: string | null };
   sourcePollId: string | null;
 }
@@ -202,6 +207,37 @@ export async function fetchEvent(id: string): Promise<{ status: number; event?: 
   const response = await api.api.events[':id'].$get({ param: { id } });
   if (!response.ok) return { status: response.status };
   return { status: 200, event: (await response.json()).event as CalEvent };
+}
+
+export async function updateEvent(
+  id: string,
+  body: { date: string; title: string; time?: string | null; memo?: string | null },
+): Promise<boolean> {
+  const response = await api.api.events[':id'].$patch({ param: { id }, json: body });
+  return response.ok;
+}
+
+export async function deleteEvent(id: string): Promise<boolean> {
+  const response = await api.api.events[':id'].$delete({ param: { id } });
+  return response.ok;
+}
+
+export async function updatePoll(
+  id: string,
+  body: { editVersion: number; title: string; deadlineAt?: string | null; candidates: { id?: string; date: string; time?: string | null }[] },
+): Promise<number> {
+  const response = await api.api.polls[':id'].$patch({ param: { id }, json: body });
+  return response.status;
+}
+
+export async function deletePoll(id: string): Promise<boolean> {
+  const response = await api.api.polls[':id'].$delete({ param: { id } });
+  return response.ok;
+}
+
+export async function unconfirmPoll(id: string, eventId: string): Promise<boolean> {
+  const response = await api.api.polls[':id'].unconfirm.$post({ param: { id }, json: { eventId } });
+  return response.ok;
 }
 
 /** UTCのISOを画面表示用の日本時間に変換する。 */

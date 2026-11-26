@@ -411,3 +411,10 @@ fieldset.field legend { padding: 0; font-size: 13px; font-weight: 700; color: va
 @media (min-width: 1024px) {
   .expired-note { margin: 16px 0 0; }
 }
+
+/* #9 編集フォーム */
+.form-card { padding: 20px 16px; }
+.form-card textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--color-border); border-radius: 10px; padding: 10px 12px; font: inherit; background: var(--color-surface); color: var(--color-text); }
+.edit-candidate-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(88px, .8fr) auto; gap: 8px; align-items: center; }
+.edit-candidate-row input { min-width: 0; border: 1px solid var(--color-border); border-radius: 10px; padding: 9px 10px; font: inherit; background: var(--color-surface); color: var(--color-text); }
+.edit-candidate-row input:disabled, .form-card input:disabled { opacity: .65; }
