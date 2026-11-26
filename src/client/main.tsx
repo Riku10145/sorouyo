@@ -17,6 +17,7 @@ import { JoinGroup } from './screens/Join';
 import { EventDetail } from './screens/EventDetail';
 import { Settings } from './screens/Settings';
 import { api } from './api';
+import { scheduleEventNotifications } from './notify';
 import './style.css';
 
 function Screen() {
@@ -50,6 +51,7 @@ function App() {
     api.api.health.$get().then(response => {
       if (!response.ok) console.warn('APIに接続できません');
     }).catch(() => console.warn('APIに接続できません'));
+    scheduleEventNotifications();
   }, []);
   return <><Screen /><Toaster /></>;
 }

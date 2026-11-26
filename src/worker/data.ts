@@ -307,6 +307,7 @@ const answerBody = z.object({
   votes: z.array(z.object({ candidateId: z.string().min(1), value: voteSchema })).max(50),
 });
 const confirmBody = z.object({ candidateId: z.string().min(1) });
+const notificationSettingsBody = z.object({ enabled: z.boolean(), time: timeSchema });
 const unconfirmBody = z.object({ eventId: z.string().min(1) });
 const eventBody = z.object({
   date: z.iso.date(), time: timeSchema.nullish(), title: z.string().trim().min(1).max(60), memo: z.string().trim().max(500).nullish(),
@@ -660,7 +661,9 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
     if (!can(subject, 'viewTally', target) && !can(subject, 'viewPoll', target)) {
       return c.json({ error: 'forbidden' } as const, 403);
     }
-    const [group, candidates, answers, votes, host] = await Promise.all([
+    const myKey = subject.userId ? `u:${subject.userId}` : undefined;
+    const tallyAllowed = can(subject, 'viewTally', target);
+    const [group, candidates, answers, votes, host, memberRows] = await Promise.all([
       get<GroupRow>(c.env.DB.prepare(`SELECT id, name, color FROM groups WHERE id = ?`).bind(poll.group_id).first()),
       all<CandidateRow>(c.env.DB.prepare(`SELECT * FROM candidates WHERE poll_id = ? ORDER BY position`).bind(poll.id).all()),
       all<AnswerRow>(c.env.DB.prepare(`SELECT * FROM answers WHERE poll_id = ? ORDER BY created_at`).bind(poll.id).all()),
@@ -668,6 +671,14 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
         `SELECT v.*, a.respondent_key FROM votes v JOIN answers a ON a.id = v.answer_id WHERE a.poll_id = ?`
       ).bind(poll.id).all()),
       get<{ display_name: string | null }>(c.env.DB.prepare(`SELECT display_name FROM users WHERE id = ?`).bind(poll.creator_id).first()),
+      // 催促対象の分け方（#7）は作成者だけに返す。メンバー一覧はゲスト・一般メンバーに出さない
+      tallyAllowed
+        ? all<{ user_id: string; display_name: string | null; email: string | null; answered: number }>(c.env.DB.prepare(
+            `SELECT m.user_id, u.display_name, u.email,
+                    EXISTS(SELECT 1 FROM answers a WHERE a.poll_id = ? AND a.respondent_key = 'u:' || m.user_id) AS answered
+             FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.group_id = ? ORDER BY m.created_at`
+          ).bind(poll.id, poll.group_id).all())
+        : Promise.resolve([]),
     ]);
     const votesBy = new Map<string, Record<string, string>>();
     for (const v of votes) {
@@ -675,8 +686,6 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
       if (!entry) votesBy.set(v.respondent_key, entry = {});
       entry[v.candidate_id] = v.value;
     }
-    const myKey = subject.userId ? `u:${subject.userId}` : undefined;
-    const tallyAllowed = can(subject, 'viewTally', target);
     return c.json({
       poll: {
         id: poll.id,
@@ -699,6 +708,12 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
           own: a.respondent_key === myKey,
           votes: votesBy.get(a.respondent_key) ?? {},
           createdAt: a.created_at,
+        })),
+        // #7: 催促対象の分類。作成者にだけ返し、回答済みかどうかを回答行の有無で判定する
+        members: memberRows.map(m => ({
+          id: m.user_id,
+          name: m.display_name ?? m.email ?? '名無し',
+          answered: Boolean(m.answered),
         })),
       },
     } as const);
@@ -903,6 +918,34 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
         sourcePollId: e.source_poll_id,
       })),
     } as const);
+  })
+
+  // --- #32 予定通知の設定 -----------------------------------------------------
+
+  // 通知設定の読み出し（本人のみ）。未設定なら無効・既定時刻を返す
+  .get('/settings/notifications', async (c) => {
+    const subject = await subjectOf(c);
+    if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
+    const row = await get<{ notify_enabled: number; notify_time: string }>(c.env.DB.prepare(
+      `SELECT notify_enabled, notify_time FROM user_settings WHERE user_id = ?`
+    ).bind(subject.userId).first());
+    return c.json({
+      enabled: Boolean(row?.notify_enabled),
+      time: row?.notify_time ?? '08:00',
+    } as const);
+  })
+
+  // 通知設定の保存（本人のみ）。冪等なupsertで、時刻はHH:MMに検証済み
+  .put('/settings/notifications', json(notificationSettingsBody), async (c) => {
+    if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
+    const subject = await subjectOf(c);
+    if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
+    const body = { data: c.req.valid('json') };
+    await c.env.DB.prepare(
+      `INSERT INTO user_settings (user_id, notify_enabled, notify_time, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT (user_id) DO UPDATE SET notify_enabled = excluded.notify_enabled, notify_time = excluded.notify_time, updated_at = excluded.updated_at`
+    ).bind(subject.userId, body.data.enabled ? 1 : 0, body.data.time, now()).run();
+    return c.json({ enabled: body.data.enabled, time: body.data.time } as const);
   })
 
   // 内部用の招待到達率。既定は直近30日の日別。利用者向け画面には出さず、運用者だけがBearerトークンで読む

@@ -162,6 +162,11 @@ function GuestForm({ poll, initial, onSubmit }: {
     <section className="invite-card"><Envelope width={64} height={46} /><h2>{poll.title}</h2><p className="strong">{poll.group.name}<span aria-hidden="true">・</span>回答の控え</p></section>
     <ul className="receipt">{poll.candidates.map((item, i) => <li key={item.id ?? item.date}><span>{dateLabel(item.date)}<span className="num">{item.time}</span></span><VoteMark vote={votes[i]!} withLabel /></li>)}</ul>
     {comment.trim() && <p className="note receipt-text">ひとこと：{comment.trim()}</p>}
+    <section className="invite-card guest-start">
+      <h2>次はあなたが主催しませんか</h2>
+      <p className="note">そろうよでは、家族や友だちとの予定を○△×で集められます。あなた自身のグループを作って、日程調整を始められます。</p>
+      <a className="primary-btn wide" href="/groups"><Icon name="plus" size={18} />自分のグループを作る</a>
+    </section>
     <a className="about-row" href="/"><span><strong>そろうよについて</strong><span>家族や友だちと使える共有カレンダーです。</span></span><Icon name="chevronRight" size={18} /></a>
     <div className="guest-footer"><p>締切までは、このリンクから回答を変更できます。</p><button type="button" className="ghost-btn wide" onClick={() => setView('editing')}><Icon name="edit" size={18} />回答を変更する</button></div>
   </GuestFrame>;

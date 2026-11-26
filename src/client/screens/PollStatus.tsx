@@ -52,6 +52,56 @@ function ConfirmComplete({ poll, index, calendarAdded }: { poll: Poll; index: nu
   </section>;
 }
 
+interface ReminderMember { id: string; name: string; answered: boolean }
+
+/** #7 未回答のメンバーだけへの催促。対象を選び、回答リンク付きの文面を共有・コピーする */
+function ReminderCard({ poll, members, linkUrl }: { poll: Poll; members: ReminderMember[]; linkUrl: () => Promise<string> }) {
+  const unanswered = members.filter(member => !member.answered);
+  const [checked, setChecked] = useState<readonly string[]>(unanswered.map(member => member.id));
+  const [busy, setBusy] = useState(false);
+  const toggle = (id: string) =>
+    setChecked(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
+  const share = async () => {
+    const names = unanswered.filter(member => checked.includes(member.id)).map(member => member.name);
+    if (!names.length) { toast('催促する人を選んでください'); return; }
+    setBusy(true);
+    const url = await linkUrl();
+    setBusy(false);
+    if (!url) { toast('回答リンクを作れませんでした'); return; }
+    const deadline = poll.deadline ? `締切は${dateLabel(poll.deadline.date)}${poll.deadline.time}です。` : '';
+    const text = `【${poll.title}】日程調整のお願い\n${names.join('さん、')}さん、まだ回答をお待ちしています。${deadline}\nこちらのリンクから○△×でお答えください。\n${url}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ text });
+        return;
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('催促文をコピーしました');
+    } catch {
+      toast(text);
+    }
+  };
+  return <section className="card reminder-card" aria-labelledby="reminder-heading">
+    <h2 id="reminder-heading">未回答のメンバーに催促</h2>
+    <p className="note">回答リンク付きの催促文を作ります。{members.length - unanswered.length}人は回答済みのため対象に入りません。</p>
+    <ul className="reminder-list">
+      {unanswered.map(member => <li key={member.id}>
+        <label className="reminder-row">
+          <input type="checkbox" checked={checked.includes(member.id)} onChange={() => toggle(member.id)} />
+          <span>{member.name}</span>
+        </label>
+      </li>)}
+    </ul>
+    <button type="button" className="soft-btn wide" disabled={busy} onClick={() => void share()}>
+      <Icon name="share" size={18} />{busy ? '作成中…' : '催促文を共有・コピー'}
+    </button>
+  </section>;
+}
+
 /** /polls/<id> を実データで開く。ログインが必要な場合は設定画面への導線を出す。 */
 export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDate: string }) {
   const me = useMe();
@@ -115,6 +165,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
   return <PollStatus poll={poll} selectedDate={selectedDate} expired={expired}
     canConfirm={me?.user.id === remote.creatorId} // 確定は主催者のみ（バックエンドも403で保護）
     canViewTally={me?.user.id === remote.creatorId}
+    members={remote.members}
     viewerName={viewerName}
     onConfirm={index => confirmCandidate(remote.id, remote.candidates[index]!.id)}
     onUnconfirm={eventId => unconfirmPoll(remote.id, eventId)}
@@ -122,12 +173,14 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
     onAnswerLink={async () => { const url = await link(); window.location.href = url; }} />;
 }
 
-export function PollStatus({ poll, selectedDate, expired = false, canConfirm = true, canViewTally = true, viewerName, onConfirm, onUnconfirm, onCopyLink, onAnswerLink }: {
+export function PollStatus({ poll, selectedDate, expired = false, canConfirm = true, canViewTally = true, members, viewerName, onConfirm, onUnconfirm, onCopyLink, onAnswerLink }: {
   poll: Poll; selectedDate: string; expired?: boolean;
   /** 確定権限がある操作者か（主催者のみ。メンバーには確定UIを出さない） */
   canConfirm?: boolean;
   /** 集計権限がある操作者か。メンバーには自分の回答状態だけを出す */
   canViewTally?: boolean;
+  /** 催促対象の分類（#7）。作成者向けAPIだけが返す */
+  members?: { id: string; name: string; answered: boolean }[];
   /** 回答前の自分を一覧に出すためのログイン中の表示名 */
   viewerName?: string;
   onConfirm?: (index: number) => Promise<string | null>;
@@ -289,11 +342,22 @@ export function PollStatus({ poll, selectedDate, expired = false, canConfirm = t
             <strong>{dateLabel(item.date)}</strong><span className="num">{timeLabel(item.time)}</span>{index === confirmed && <span className="chip-soft">確定</span>}{index === chosen && <span className="chip-soft">選択中</span>}
           </button></th>)}</tr></thead>
         <tbody>{displayAnswers.map(answer => <tr key={answer.id ?? (answer === you ? 'you' : answer.name)} className={answer === you ? 'you' : ''}>
-          <th scope="row">{answer.name}{answer === you && '（あなた）'}</th>
+          <th scope="row">{answer.name}{answer === you && '（あなた）'}{answer.comment?.trim() && <span className="matrix-comment">{answer.comment.trim()}</span>}</th>
           {poll.candidates.map((item, index) => <td key={item.id ?? item.date}><VoteMark vote={answer.votes[index] ?? null} withLabel /></td>)}
         </tr>)}</tbody>
       </table>
     </section>
+
+    {canViewTally && members && confirmed === null && !expired && members.some(member => !member.answered) &&
+      <ReminderCard poll={poll} members={members} linkUrl={linkUrl} />}
+
+    {canViewTally && poll.answers.some(answer => answered(answer) && answer.comment?.trim()) && <section className="m-only card comments-card" aria-label="回答のひとこと">
+      <h2>ひとこと</h2>
+      <ul className="comment-list">
+        {poll.answers.filter(answer => answered(answer) && answer.comment?.trim()).map(answer =>
+          <li key={answer.id ?? answer.name}><strong>{answer.name}</strong><span>{answer.comment!.trim()}</span></li>)}
+      </ul>
+    </section>}
 
     {canConfirm && <div className="confirm-bar">
       <p className="desk-only best-note"><span>{confirmed !== null ? '確定した候補日' : chosen === best ? '参加できる人が最多' : '選択中の候補日'}</span><strong>{dateLabel((confirmed !== null ? poll.candidates[confirmed]! : candidate).date)} {timeLabel((confirmed !== null ? poll.candidates[confirmed]! : candidate).time)}</strong></p>

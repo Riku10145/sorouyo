@@ -25,7 +25,7 @@ function makeDb(beforeJoinInviteExpiryMigration?: (db: DatabaseSync) => void, in
   beforeJoinInviteExpiryMigration?.(db);
   apply('0003_join_invite_expiry.sql');
   if (includeAnalytics) apply('0004_analytics_events.sql');
-  for (const file of ['0005_event_memo.sql', '0006_poll_edit_state.sql']) apply(file);
+  for (const file of ['0005_event_memo.sql', '0006_poll_edit_state.sql', '0007_notification_settings.sql']) apply(file);
   db.exec('PRAGMA foreign_keys = ON');
   const prepare = (sql: string) => {
     let args: unknown[] = [];
@@ -836,6 +836,85 @@ describe('data', () => {
     const { poll: inv } = await inviteRes.json() as { poll: { accepting: boolean; candidates: { id: string }[] } };
     expect(inv.accepting).toBe(false);
     expect((await post(app, db, '/api/invite/answer', { token, name: 'x', votes: [{ candidateId: inv.candidates[0]!.id, value: 'yes' }] }, await guest(app, db))).status).toBe(410);
+  });
+
+  test('#7 催促対象: 作成者には回答済みかの分類が返り、メンバーには返らない', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const member = await login(app, db, 'code_member');
+    const { groupId, pollId, token } = await setupPoll(app, db, host);
+    const joinRes = await req(app, db, `/api/groups/${groupId}/invites`, { method: 'POST', headers: { cookie: host } });
+    const { token: joinToken } = await joinRes.json() as { token: string };
+    await post(app, db, '/api/groups/join', { token: joinToken }, member);
+
+    // 誰も答えていない間は全員が未回答
+    const before = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } });
+    const { poll: seenBefore } = await before.json() as { poll: { members: { name: string; answered: boolean }[] } };
+    expect(seenBefore.members).toHaveLength(2);
+    expect(seenBefore.members.every(m => !m.answered)).toBe(true);
+
+    // メンバーが回答すると、その人だけが回答済みになる
+    const invite = await post(app, db, '/api/invite', { token }, member);
+    const candId = (await invite.json() as { poll: { candidates: { id: string }[] } }).poll.candidates[0]!.id;
+    const answered = await post(app, db, '/api/invite/answer', {
+      token, name: '花子', comment: '19時以降なら', votes: [{ candidateId: candId, value: 'maybe' }],
+    }, member);
+    expect(answered.status).toBe(200);
+
+    const after = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: host } });
+    const { poll: seen } = await after.json() as {
+      poll: { members: { id: string; answered: boolean }[]; answers: { name: string; comment: string | null }[] };
+    };
+    const byId = Object.fromEntries(seen.members.map(m => [m.id, m.answered]));
+    expect(byId.user_member).toBe(true);
+    expect(byId.user_host).toBe(false);
+    // #8: 作成者は投票内容と一緒にコメントを読める
+    expect(seen.answers[0]).toMatchObject({ name: '花子', comment: '19時以降なら' });
+
+    // 作成者でないメンバーには分類を返さない（催促は主催者の操作）
+    const asMember = await req(app, db, `/api/polls/${pollId}`, { headers: { cookie: member } });
+    const { poll: memberSeen } = await asMember.json() as { poll: { members: unknown[] } };
+    expect(memberSeen.members).toEqual([]);
+  });
+
+  test('#32 通知設定: 保存と読み出しができ、未設定は無効・既定時刻、不正な時刻は400', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const other = await login(app, db, 'code_other');
+
+    // 未ログインは読み書きともに401
+    expect((await req(app, db, '/api/settings/notifications')).status).toBe(401);
+
+    // 未設定なら無効・08:00
+    const initial = await req(app, db, '/api/settings/notifications', { headers: { cookie: host } });
+    expect(await initial.json()).toEqual({ enabled: false, time: '08:00' });
+
+    // 保存して読み直すと同じ値。利用者ごとに独立している
+    const put = await req(app, db, '/api/settings/notifications', {
+      method: 'PUT', headers: { cookie: host, 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: true, time: '07:30' }),
+    });
+    expect(put.status).toBe(200);
+    const saved = await req(app, db, '/api/settings/notifications', { headers: { cookie: host } });
+    expect(await saved.json()).toEqual({ enabled: true, time: '07:30' });
+    const untouched = await req(app, db, '/api/settings/notifications', { headers: { cookie: other } });
+    expect(await untouched.json()).toEqual({ enabled: false, time: '08:00' });
+
+    // 切ると無効が保存される
+    await req(app, db, '/api/settings/notifications', {
+      method: 'PUT', headers: { cookie: host, 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: false, time: '07:30' }),
+    });
+    expect(await (await req(app, db, '/api/settings/notifications', { headers: { cookie: host } })).json())
+      .toEqual({ enabled: false, time: '07:30' });
+
+    // 時刻の形式が不正なら400
+    expect((await req(app, db, '/api/settings/notifications', {
+      method: 'PUT', headers: { cookie: host, 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: true, time: '25:00' }),
+    })).status).toBe(400);
   });
 
   test('通常予定はメンバーが編集・削除でき、調整由来の予定は日時を直接変えられない', async () => {
