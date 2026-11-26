@@ -45,3 +45,4 @@
 - [招待リンクの締切・無効状態](./invite-error-states.md): closed sample と無効 token の error state を確認する。
 - [会員画面のログイン境界](./login-boundary.md): 未ログインで会員データを見せず、sample への逃げ道と未設定時の説明を確認する。
 - [プランの無料期間案内](./plan-free-notice.md): ナビと `/plan` から、無料期間・作成上限・作成済みグループの無料継続・ゲスト回答無料の案内を確認する。
+- [作成系データの累積上限](./creation-limits.md): 調整・通常予定・回答リンクの上限、409応答、同時作成の境界を確認する。
