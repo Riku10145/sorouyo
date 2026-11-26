@@ -704,7 +704,7 @@ async function assertExactPlanNotice(page, notice) {
 async function drivePlanFreeNotice(runDir, cdpUrl) {
   const { p, run } = loadRun(runDir);
   const directory = path.join(p.evidenceDir, 'plan-free-notice');
-  const notice = 'いまは無料期間です。1人10グループまで作れます（招待されて参加したグループは数えません）。今後有料プランを始める場合も、それまでに作ったグループはずっと無料で使えます。日程調整への回答は、登録なしでいつでも無料です。';
+  const notice = 'いまは無料期間です。1人5グループまで作れます（招待されて参加したグループは数えません）。今後有料プランを始める場合も、それまでに作ったグループはずっと無料で使えます。日程調整への回答は、登録なしでいつでも無料です。';
   const summary = await withMobilePage(cdpUrl, async page => {
     await page.goto(`${run.url}/`);
     await page.getByRole('link', { name: 'プラン' }).click();

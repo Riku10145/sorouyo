@@ -9,7 +9,7 @@ afterEach(() => vi.unstubAllGlobals());
 test('プラン画面に無料期間と作成済みグループの無料継続を表示する', () => {
   const html = renderToStaticMarkup(createElement(Plan));
   expect(html).toContain(PLAN_FREE_NOTICE);
-  expect(html).toContain('1人10グループまで作れます');
+  expect(html).toContain('1人5グループまで作れます');
   expect(html).toContain('日程調整への回答は、登録なしでいつでも無料です');
 });
 
