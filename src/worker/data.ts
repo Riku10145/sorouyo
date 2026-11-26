@@ -1050,7 +1050,7 @@ export function buildDataRoutes(getDeps: GetAuthDeps) {
         completion: '有効な回答リンクから回答書き込みが受理された回数',
         usageStartClick: '回答完了画面で「自分のグループを作る」が押された回数',
         usageStart: 'ゲスト回答者がログインし、最初の自分のグループを作成した回数',
-        dedupe: 'イベント種別＋招待の内部ID＋匿名訪問者Cookieで一意。再読込・再送は重複除外し、再発行リンクは別の招待として数える',
+        dedupe: 'イベント種別＋招待の内部ID＋匿名訪問者Cookieで一意。再読込・再送は重複除外し、再発行リンクは別の招待として数える。usage_startだけは利用開始済みの匿名訪問者を別招待でも再計上しない',
         rate: 'completionRateは answerCompletions / validLinkVisits、usageStartClickRateとusageStartRateは分母をanswerCompletionsとする。日別も同じ日に記録された数値の比',
         future: '有料転換率は checkout_completed を同じ匿名イベント構造で追加して区別する',
       },
