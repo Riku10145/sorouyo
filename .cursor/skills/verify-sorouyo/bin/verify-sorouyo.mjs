@@ -132,9 +132,14 @@ function splitNullSeparated(output) {
   return output.split('\0').filter(Boolean);
 }
 
-function workingTreeFingerprint() {
-  const tracked = splitNullSeparated(git(['diff', 'HEAD', '--name-only', '-z']));
-  const untracked = splitNullSeparated(git(['ls-files', '-o', '--exclude-standard', '-z']));
+function workingTreeFingerprint(excludeDir = null) {
+  const relativeExclude = excludeDir ? path.relative(repoRoot, excludeDir).split(path.sep).join('/') : null;
+  const excludeInsideRepo = Boolean(
+    relativeExclude && relativeExclude !== '..' && !relativeExclude.startsWith('../') && !path.isAbsolute(relativeExclude),
+  );
+  const isExcluded = file => excludeInsideRepo && (file === relativeExclude || file.startsWith(`${relativeExclude}/`));
+  const tracked = splitNullSeparated(git(['diff', 'HEAD', '--name-only', '-z'])).filter(file => !isExcluded(file));
+  const untracked = splitNullSeparated(git(['ls-files', '-o', '--exclude-standard', '-z'])).filter(file => !isExcluded(file));
   const files = [...new Set([...tracked, ...untracked])].sort();
   const hash = crypto.createHash('sha256');
   hash.update(git(['diff', 'HEAD', '--raw']));
@@ -214,8 +219,9 @@ function portOwnerPids(port) {
 async function launch(options) {
   const runDir = options['run-dir'] ? path.resolve(repoRoot, options['run-dir']) : defaultRunDir();
   const p = paths(runDir);
+  if (process.platform === 'win32') throw new Error('verify-sorouyo currently supports Linux and macOS only');
   if (fs.existsSync(runDir) && fs.readdirSync(runDir).length > 0) {
-    throw new Error(`${runDir} already exists and is not empty; use a new empty run directory or cleanup first`);
+    throw new Error(`${runDir} already exists and is not empty; use a new empty run directory. Cleanup intentionally retains evidence`);
   }
   fs.mkdirSync(runDir, { recursive: true });
   fs.mkdirSync(p.evidenceDir, { recursive: true });
@@ -248,7 +254,7 @@ async function launch(options) {
     node: process.version,
     gitRevision: git(['rev-parse', 'HEAD']),
     gitStatus: git(['status', '--porcelain']),
-    gitWorkingTreeFingerprint: workingTreeFingerprint(),
+    gitWorkingTreeFingerprint: workingTreeFingerprint(runDir),
   };
   writeJson(p.runJson, metadata);
 
@@ -331,7 +337,7 @@ async function doctor(options) {
   checks.currentGitRevision = git(['rev-parse', 'HEAD']);
   checks.gitRevisionMatches = !run.gitRevision || run.gitRevision === checks.currentGitRevision;
   checks.gitStatusMatches = run.gitStatus === git(['status', '--porcelain']);
-  checks.currentGitWorkingTreeFingerprint = workingTreeFingerprint();
+  checks.currentGitWorkingTreeFingerprint = workingTreeFingerprint(runDir);
   checks.gitWorkingTreeFingerprintMatches = !run.gitWorkingTreeFingerprint || run.gitWorkingTreeFingerprint === checks.currentGitWorkingTreeFingerprint;
   checks.ok = Boolean(
     checks.processMatchesLaunch && checks.portOwnedByLaunchedProcess && checks.health &&
@@ -659,6 +665,7 @@ async function drive(positional, options) {
     'login-boundary': driveLoginBoundary,
   };
   if (!drivers[feature]) throw new Error(`unknown feature ${feature}; expected one of ${Object.keys(drivers).join(', ')}`);
+  loadRun(runDir);
   const directory = path.join(paths(runDir).evidenceDir, feature);
   fs.rmSync(path.join(directory, 'summary.json'), { force: true });
   try {
