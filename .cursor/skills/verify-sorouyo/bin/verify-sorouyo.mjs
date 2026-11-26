@@ -689,10 +689,14 @@ async function driveLoginBoundary(runDir, cdpUrl) {
 }
 
 async function assertExactPlanNotice(page, notice) {
-  const actual = await page.locator('section[aria-labelledby="free-plan-heading"] p').textContent();
-  assert.equal(actual?.replace(/\s+/g, ' ').trim(), notice);
-  const body = await page.locator('body').textContent() ?? '';
-  for (const forbidden of [/[¥￥]\s*\d/, /\d[\d,]*\s*円/, /月額/, /年額/, /課金開始/, /有料機能/, /解約/, /返金/]) {
+  const noticeLocator = page.locator('section[aria-labelledby="free-plan-heading"] p');
+  await noticeLocator.waitFor({ state: 'visible' });
+  const box = await noticeLocator.boundingBox();
+  assert.ok(box && box.width > 0 && box.height > 0, 'plan notice is not visibly rendered');
+  const actual = await noticeLocator.innerText();
+  assert.equal(actual.replace(/\s+/g, ' ').trim(), notice);
+  const body = await page.locator('body').innerText();
+  for (const forbidden of [/[¥￥]/, /円/, /月額/, /年額/, /課金開始/, /有料機能/, /解約/, /返金/]) {
     assert.equal(forbidden.test(body), false, `plan notice contains undecided billing term matching ${forbidden}`);
   }
 }
