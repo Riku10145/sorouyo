@@ -113,15 +113,15 @@ export function inviteRoutes(subjectOf: GetSubject) {
       10,
     )) return rateLimited(c);
 
-    // リンク単位の簡易レート制限: 1時間に新しい回答者は30人まで。ゲスト識別子を取り直した連投への抑止。
-    // 既に回答済みの人の変更は制限しない
+    // リンク単位の簡易レート制限: 1時間に新しいゲスト回答者は30人まで。ゲスト識別子を取り直した連投への抑止。
+    // 認証済みメンバーは本人を特定できるため枠の対象外。既に回答済みの人の変更は制限しない
     const existing = await c.env.DB.prepare(
       `SELECT id FROM answers WHERE poll_id = ? AND respondent_key = ?`
     ).bind(poll.id, key).first<{ id: string }>();
-    if (!existing) {
+    if (!existing && !ids.userId) {
       const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
       const recent = await c.env.DB.prepare(
-        `SELECT COUNT(DISTINCT respondent_key) AS n FROM answers WHERE poll_id = ? AND created_at > ?`
+        `SELECT COUNT(DISTINCT respondent_key) AS n FROM answers WHERE poll_id = ? AND created_at > ? AND user_id IS NULL`
       ).bind(poll.id, hourAgo).first<{ n: number }>();
       if ((recent?.n ?? 0) >= 30) return rateLimited(c);
     }
