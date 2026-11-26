@@ -16,8 +16,11 @@ const notified = (day: string) => localStorage.setItem(FIRED_KEY, day);
 async function showNotification(title: string, options: NotificationOptions): Promise<void> {
   if ('serviceWorker' in navigator) {
     try {
-      const registration = await navigator.serviceWorker.register('/sw.js');
-      await registration.showNotification(title, options);
+      // 初回登録ではworkerがまだactiveでないことがある。AndroidのChromeはコンストラクタに倒せないため、
+      // activeになるのを待ってから表示する
+      await navigator.serviceWorker.register('/sw.js');
+      const ready = await navigator.serviceWorker.ready;
+      await ready.showNotification(title, options);
       return;
     } catch { /* Service Workerが使えない環境はコンストラクタに倒す */ }
   }
