@@ -45,7 +45,6 @@ export function pollsRoutes(subjectOf: GetSubject) {
     return c.json({ poll: { id: pollId }, token } as const, 201);
   })
 
-  // 回答リンクの再発行（メンバー以上）。共有済みリンクを維持するため旧リンクは残す
   .post('/polls/:id/invite', async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const subject = await subjectOf(c);

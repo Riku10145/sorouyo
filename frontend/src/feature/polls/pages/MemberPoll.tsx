@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { AppShell } from '../../../components/AppShell';
 import { Icon } from '../../../components/Icon';
 import { LoginLink } from '../../../components/LoginCard';
+import { toast } from '../../../components/Toaster';
 import { useMe } from '../../../hooks/useMe';
 import { confirmCandidate, issueInviteToken, unconfirmPoll } from '../api/polls';
 import { PollStatus, type CopyLinkResult } from '../components/PollStatus';
@@ -52,5 +53,9 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
     onConfirm={index => confirmCandidate(remote.id, remote.candidates[index]!.id)}
     onUnconfirm={eventId => unconfirmPoll(remote.id, eventId)}
     onCopyLink={link}
-    onAnswerLink={async () => { const result = await link(); if ('url' in result) window.location.href = result.url; }} />;
+    onAnswerLink={async () => {
+      const result = await link();
+      if ('url' in result) window.location.href = result.url;
+      else toast(result.error === 'limit' ? 'この調整の回答リンクは発行上限に達しました' : '回答リンクを作れませんでした');
+    }} />;
 }
