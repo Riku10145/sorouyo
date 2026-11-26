@@ -44,3 +44,4 @@
 - [日程調整の回答状況（サンプル）](./sample-poll-status.md): sample poll の回答コメント表示・候補日選択・確定完了画面を確認する。
 - [招待リンクの締切・無効状態](./invite-error-states.md): closed sample と無効 token の error state を確認する。
 - [会員画面のログイン境界](./login-boundary.md): 未ログインで会員データを見せず、sample への逃げ道と未設定時の説明を確認する。
+- [プランの無料期間案内](./plan-free-notice.md): ナビと `/plan` から、無料期間・作成上限・作成済みグループの無料継続・ゲスト回答無料の案内を確認する。

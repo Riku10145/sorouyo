@@ -277,7 +277,7 @@ function RemoteHome({ today, initialDate }: { today: string; initialDate: string
       <section className="empty-hero">
         <h1>そろうよへようこそ</h1>
         <p>まずはグループを作りましょう。家族・仲間ごとに色を決めると、カレンダーで見分けられます。</p>
-        <GroupForm submitLabel="グループを作成" onSubmit={async (name, color) => {
+        <GroupForm submitLabel="グループを作成" showFreeNotice onSubmit={async (name, color) => {
           const created = await createGroup(name, color);
           if (!created.group) return '作成できませんでした';
           setGroups([created.group]);

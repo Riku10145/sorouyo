@@ -1,20 +1,18 @@
 import type { ReactNode } from 'react';
-import { Brand, Dot, Icon, notReady, type DisplayGroup } from '../design/ui';
+import { Brand, Dot, Icon, type DisplayGroup } from '../design/ui';
 import type { IconName } from '../design/art';
 import { dateLabel } from '../../shared/model';
 
-export type Tab = 'calendar' | 'polls' | 'groups';
-const NAV: readonly { id: Tab | 'plan'; label: string; icon: IconName; href?: string }[] = [
+export type Tab = 'calendar' | 'polls' | 'groups' | 'plan';
+const NAV: readonly { id: Tab; label: string; icon: IconName; href: string }[] = [
   { id: 'calendar', label: 'カレンダー', icon: 'calendarTab', href: '/' },
   { id: 'polls', label: '日程調整', icon: 'pollTab', href: '/polls' },
   { id: 'groups', label: 'グループ', icon: 'groupsTab', href: '/groups' },
-  { id: 'plan', label: 'プラン', icon: 'plan' },
+  { id: 'plan', label: 'プラン', icon: 'plan', href: '/plan' },
 ];
 
 function NavItems({ active, className }: { active: Tab; className: string }) {
-  return <>{NAV.map(item => item.href
-    ? <a key={item.id} className={className} href={item.href} aria-current={item.id === active ? 'page' : undefined}><Icon name={item.icon} size={22} /><span>{item.label}</span></a>
-    : <button key={item.id} type="button" className={className} onClick={() => notReady(item.label)}><Icon name={item.icon} size={22} /><span>{item.label}</span></button>)}</>;
+  return <>{NAV.map(item => <a key={item.id} className={className} href={item.href} aria-current={item.id === active ? 'page' : undefined}><Icon name={item.icon} size={22} /><span>{item.label}</span></a>)}</>;
 }
 
 export interface SideEvent { id?: string; title: string; time?: string | null; group: DisplayGroup; link?: string }
