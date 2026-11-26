@@ -23,7 +23,7 @@ npm run dev
 
 - ブラウザの幅を375pxと1440pxにして `/`（月カレンダー）、`/polls/sample`（回答状況）、`/r#sample`（ゲストの回答）を開きます。サンプルデータとPaperの対応は [docs/paper-screen-map.md](docs/paper-screen-map.md) を参照します。
 - `/r#sample-closed` は締切後、無効なトークンや `/r` は無効な招待リンクの画面を表示します。通信エラーなどで招待を読み込めない場合は、同じリンクで再試行できます。
-- `npm run check` でブラウザ・Workerの型検査、共有ロジック・APIのテスト、ビルドを実行します。
+- `npm run check` でブラウザ・Workerの型検査、共有ロジック・APIのテスト、ビルドを実行します。`npm ci` でlefthookがインストールされ、コミット前にも同じ確認が走ります。一時的に外す場合は `LEFTHOOK=0 git commit ...` を使います。
 - `npm run preview` でビルド済みアプリをWorkersランタイムで配信します。`/r` の直接アクセスもSPAに戻ります。
 - `/api/health` は `{"ok":true}`、不明な `/api/*` はJSONの404を返します。
 - `npm run test:browser` はカレンダーと予定追加シートのフォーカス、モバイルの予定リンク、カレンダーの読み込みエラー時の再試行、確定バー、下部ナビのフォーカス位置、横向きモバイルでの予定追加シートのタッチスクロール、サイドバースクロール、キーボードフォーカスのコントラスト、招待リンクの読み込みと再試行の回帰を確認するブラウザテストです（`scripts/*.browser.test.mjs`）。`npm run dev` を起動したうえで、CDP接続可能なChromeを別途起動してから実行します。接続先・起動先は `CDP_URL`（既定 `http://localhost:29229`）と `APP_URL`（既定 `http://localhost:5173`）で変更できます。通常の `node --test` ではスキップされます。
