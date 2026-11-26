@@ -364,7 +364,7 @@ fieldset.field legend { padding: 0; font-size: 13px; font-weight: 700; color: va
 .empty-hero h1, .empty-hero h2 { font-family: var(--font-serif); font-size: 22px; font-weight: 800; }
 .empty-hero p { font-size: 13px; line-height: 1.8; color: var(--color-text); }
 .danger { color: #B3402F; }
-.primary-btn.danger { background: #B3402F; }
+.primary-btn.danger { background: #B3402F; color: #fff; }
 .danger-zone { border: 1px solid #E4B7AE; }
 .sheet-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; grid-template-rows: minmax(0, 1fr); place-items: end center; background: rgba(20, 30, 20, 0.4); }
 .sheet { display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 520px; max-height: 100%; overflow-y: auto; overscroll-behavior-y: contain; padding: 20px 18px 28px; border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: var(--color-surface); }
