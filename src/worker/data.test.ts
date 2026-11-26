@@ -14,6 +14,7 @@ import {
   type WorkosClient,
 } from './auth';
 import { buildDataRoutes, type DataEnv } from './data';
+import { GROUP_CREATION_LIMIT } from '../shared/model';
 
 // --- D1 を node:sqlite でシムする（migrations/*.sql をそのまま適用） ---
 
@@ -25,7 +26,7 @@ function makeDb(beforeJoinInviteExpiryMigration?: (db: DatabaseSync) => void, in
   beforeJoinInviteExpiryMigration?.(db);
   apply('0003_join_invite_expiry.sql');
   if (includeAnalytics) apply('0004_analytics_events.sql');
-  for (const file of ['0005_event_memo.sql', '0006_poll_edit_state.sql', '0007_notification_settings.sql']) apply(file);
+  for (const file of ['0005_event_memo.sql', '0006_poll_edit_state.sql', '0007_notification_settings.sql', '0008_group_creator.sql']) apply(file);
   db.exec('PRAGMA foreign_keys = ON');
   const prepare = (sql: string) => {
     let args: unknown[] = [];
@@ -41,9 +42,14 @@ function makeDb(beforeJoinInviteExpiryMigration?: (db: DatabaseSync) => void, in
     };
     return stmt;
   };
+  let batchQueue: Promise<void> = Promise.resolve();
   const shim = {
     prepare: (sql: string) => prepare(sql),
     batch: async (stmts: { run: () => Promise<unknown> }[]) => {
+      const previous = batchQueue;
+      let release!: () => void;
+      batchQueue = new Promise(resolve => { release = resolve; });
+      await previous;
       db.exec('BEGIN');
       try {
         const out = [];
@@ -53,6 +59,8 @@ function makeDb(beforeJoinInviteExpiryMigration?: (db: DatabaseSync) => void, in
       } catch (e) {
         db.exec('ROLLBACK');
         throw e;
+      } finally {
+        release();
       }
     },
   } as unknown as D1Database & { rawDb: DatabaseSync };
@@ -182,6 +190,20 @@ describe('data', () => {
       '2026-01-08T00:00:00.000Z',
     ]);
     expect(rows.filter(row => !row.revoked_at).map(row => row.id)).toEqual(['invite_c']);
+  });
+
+  test('マイグレーション: 既存グループの作成者を最初のadminから補完する', async () => {
+    const db = makeDb((raw) => {
+      raw.prepare(`INSERT INTO users (id, email, display_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`)
+        .run('user_owner', 'owner@example.com', 'owner', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+      raw.prepare(`INSERT INTO groups (id, name, created_at) VALUES (?, ?, ?)`)
+        .run('group_owned', 'legacy', '2026-01-01T00:00:00.000Z');
+      raw.prepare(`INSERT INTO memberships (group_id, user_id, role, created_at) VALUES (?, ?, 'admin', ?)`)
+        .run('group_owned', 'user_owner', '2026-01-01T00:00:00.000Z');
+    });
+
+    const row = await db.prepare(`SELECT created_by FROM groups WHERE id = 'group_owned'`).first() as { created_by: string | null };
+    expect(row.created_by).toBe('user_owner');
   });
 
   test('永続化: 作成したグループ・調整・回答が別ブラウザ（別セッションCookie）でも同じように取れる', async () => {
@@ -562,6 +584,59 @@ describe('data', () => {
     const cal = await req(app, db, '/api/calendar?month=2026-05', { headers: { cookie: member } });
     expect((await cal.json() as { events: { group: { name: string; color: string } }[] }).events[0]!.group)
       .toMatchObject({ name: '新しい家族', color: '#4E8A5A' });
+  });
+
+  test('グループ作成上限: migration後に旧Workerが作ったcreated_by未設定のグループも数える', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+
+    rawDb(db).prepare(`INSERT INTO users (id, email, display_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`)
+      .run('user_host', 'host@example.com', '主催 一郎', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+    rawDb(db).prepare(`INSERT INTO groups (id, name, created_by, created_at) VALUES (?, ?, NULL, ?)`)
+      .run('group_transition', '移行中のグループ', '2026-01-01T00:00:00.000Z');
+    rawDb(db).prepare(`INSERT INTO memberships (group_id, user_id, role, created_at) VALUES (?, ?, 'admin', ?)`)
+      .run('group_transition', 'user_host', '2026-01-01T00:00:00.000Z');
+
+    for (let i = 0; i < GROUP_CREATION_LIMIT - 1; i++) {
+      expect((await post(app, db, '/api/groups', { name: `作成${i}` }, host)).status).toBe(201);
+    }
+    expect((await post(app, db, '/api/groups', { name: '上限後' }, host)).status).toBe(409);
+  });
+
+  test('グループ作成上限: 上限超過は409で、参加グループは数えず削除するとまた作れる', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const member = await login(app, db, 'code_member');
+
+    const ownedIds: string[] = [];
+    for (let i = 0; i < GROUP_CREATION_LIMIT; i++) {
+      const created = await post(app, db, '/api/groups', { name: `作成${i}`, color: '#D97A3D' }, host);
+      expect(created.status).toBe(201);
+      ownedIds.push((await created.json() as { group: { id: string } }).group.id);
+    }
+    const limited = await post(app, db, '/api/groups', { name: '上限後', color: '#D97A3D' }, host);
+    expect(limited.status).toBe(409);
+    expect(await limited.json() as { error: string }).toEqual({ error: 'group_limit' });
+
+    // 作成したグループを1件消すと、その分だけまた作れる
+    expect((await req(app, db, `/api/groups/${ownedIds[0]}`, { method: 'DELETE', headers: { cookie: host } })).status).toBe(204);
+
+    // 招待で参加したグループは作成数に入れない。所属数は上限でも作成数は上限より1件少ないまま
+    const memberCreated = await post(app, db, '/api/groups', { name: '招待元', color: '#4E8A5A' }, member);
+    const { group: invitedGroup } = await memberCreated.json() as { group: { id: string } };
+    const invite = await req(app, db, `/api/groups/${invitedGroup.id}/invites`, { method: 'POST', headers: { cookie: member } });
+    const { token } = await invite.json() as { token: string };
+    expect((await post(app, db, '/api/groups/join', { token }, host)).status).toBe(201);
+
+    const attempts = await Promise.all([
+      post(app, db, '/api/groups', { name: '追加A', color: '#D97A3D' }, host),
+      post(app, db, '/api/groups', { name: '追加B', color: '#D97A3D' }, host),
+    ]);
+    expect(attempts.map(response => response.status).sort()).toEqual([201, 409]);
+    expect((await post(app, db, '/api/groups', { name: 'さらに追加', color: '#D97A3D' }, host)).status).toBe(409);
+    expect((rawDb(db).prepare(`SELECT COUNT(*) AS n FROM groups WHERE created_by = 'user_host'`).get() as { n: number }).n).toBe(GROUP_CREATION_LIMIT);
   });
 
   test('グループ詳細: メンバー一覧と件数が取れ、削除は対象グループだけを消してリンクを無効化する', async () => {
