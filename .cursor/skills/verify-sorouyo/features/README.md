@@ -39,6 +39,7 @@
 ## Features
 
 - [ゲスト回答](./guest-answer.md): 実データの招待リンクを開き、○△×・名前だけの回答とひとこと追加を送信し、D1保存と再訪復元を確認する。
+- [ゲスト回答後のグループ作成導線](./guest-group-start.md): 回答完了CTA、ログインへのcreate引き継ぎ、クリック計測のD1保存を確認する。
 - [月カレンダー（サンプル）](./sample-calendar.md): 未ログインの sample calendar で日付表示と月移動を確認する。
 - [日程調整の回答状況（サンプル）](./sample-poll-status.md): sample poll の回答コメント表示・候補日選択・確定完了画面を確認する。
 - [招待リンクの締切・無効状態](./invite-error-states.md): closed sample と無効 token の error state を確認する。

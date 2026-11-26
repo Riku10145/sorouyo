@@ -3,7 +3,7 @@ import { answerError, dateLabel, dayTone, shortDate, timeLabel, weekday, type Vo
 import { findPoll, type Poll } from '../../shared/sample';
 import { Brand, Icon, InviteHero, VOTE_WORD, VoteMark, VotePicker } from '../design/ui';
 import { Envelope } from '../design/art';
-import { fetchInvite, submitAnswer, toJst, type AnswerResult, type InvitePoll } from '../api';
+import { fetchInvite, recordUsageStartClick, submitAnswer, toJst, type AnswerResult, type InvitePoll } from '../api';
 
 export function useHashToken() {
   const [token, setToken] = useState(window.location.hash.slice(1).trim());
@@ -102,13 +102,14 @@ function RemoteGuest({ token }: { token: string }) {
       const candidateId = result.candidates[i]?.id;
       return vote && candidateId ? [{ candidateId, value: vote }] : [];
     }));
-  return <GuestForm key={result.id} poll={poll} initial={initial} onSubmit={send} />;
+  return <GuestForm key={result.id} poll={poll} initial={initial} onSubmit={send} usageStartToken={token} />;
 }
 
-function GuestForm({ poll, initial, onSubmit }: {
+function GuestForm({ poll, initial, onSubmit, usageStartToken }: {
   poll: Poll;
   initial?: { name: string; comment: string; votes: (Vote | null)[] };
   onSubmit?: (votes: (Vote | null)[], name: string, comment: string) => Promise<AnswerResult>;
+  usageStartToken?: string;
 }) {
   const [votes, setVotes] = useState<(Vote | null)[]>(() => initial?.votes ?? poll.candidates.map(() => null));
   const [name, setName] = useState(initial?.name ?? '');
@@ -165,7 +166,7 @@ function GuestForm({ poll, initial, onSubmit }: {
     <section className="invite-card guest-start">
       <h2>次はあなたが主催しませんか</h2>
       <p className="note">そろうよでは、家族や友だちとの予定を○△×で集められます。あなた自身のグループを作って、日程調整を始められます。</p>
-      <a className="primary-btn wide" href="/groups"><Icon name="plus" size={18} />自分のグループを作る</a>
+      <a className="primary-btn wide" href="/groups?create=1" onClick={() => usageStartToken && recordUsageStartClick(usageStartToken)}><Icon name="plus" size={18} />自分のグループを作る</a>
     </section>
     <a className="about-row" href="/"><span><strong>そろうよについて</strong><span>家族や友だちと使える共有カレンダーです。</span></span><Icon name="chevronRight" size={18} /></a>
     <div className="guest-footer"><p>締切までは、このリンクから回答を変更できます。</p><button type="button" className="ghost-btn wide" onClick={() => setView('editing')}><Icon name="edit" size={18} />回答を変更する</button></div>
