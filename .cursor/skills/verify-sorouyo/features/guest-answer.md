@@ -31,4 +31,5 @@ Preconditions:
 - `/r#sample` は frontend の sample data であり、この feature の D1 proof では使わない。
 - トークンは URL fragment なのでアクセスログや SPA 初期リクエストには出ないが、API には POST body として渡される。証跡に残る fixture token は cleanup 後に失効した検証用データだけにする。
 - 同じ `RUN_DIR` に2回 `seed-invite` すると既存 fixture を再利用する。新しい回答者で試したいときは cleanup して新しい run を起動する。
+- `drive guest-answer` は再実行を決定的にするため、開始前に seeded poll の以前の検証回答を削除する。 fixture 以外の実データを同じ poll に入れない。
 - レート制限に当たった場合は連続再送せず、同じ browser context と run state を保ったまま原因を確認する。

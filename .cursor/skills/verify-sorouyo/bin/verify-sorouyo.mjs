@@ -443,18 +443,22 @@ function answerRows(stateDir, pollId) {
     SELECT a.id AS answer_id, a.display_name, a.comment, v.candidate_id, v.value
     FROM answers a LEFT JOIN votes v ON v.answer_id = a.id
     WHERE a.poll_id = ${quote(pollId)}
-      AND a.id = (
-        SELECT id FROM answers WHERE poll_id = ${quote(pollId)}
-        ORDER BY updated_at DESC, rowid DESC LIMIT 1
-      )
     ORDER BY v.candidate_id
   `).results;
+}
+
+function resetAnswers(stateDir, pollId) {
+  executeSql(stateDir, `
+    DELETE FROM votes WHERE answer_id IN (SELECT id FROM answers WHERE poll_id = ${quote(pollId)});
+    DELETE FROM answers WHERE poll_id = ${quote(pollId)};
+  `);
 }
 
 async function driveGuestAnswer(runDir, cdpUrl) {
   const { p, run } = loadRun(runDir);
   if (!fs.existsSync(p.fixtureJson)) throw new Error('missing fixture.json; run seed-invite first');
   const fixture = readJson(p.fixtureJson);
+  resetAnswers(p.stateDir, fixture.pollId);
   const directory = path.join(p.evidenceDir, 'guest-answer');
   const votes = ['yes', 'maybe', 'no'];
   const radioNames = { yes: '○ 参加', maybe: '△ 未定', no: '× 欠席' };
@@ -478,6 +482,8 @@ async function driveGuestAnswer(runDir, cdpUrl) {
 
     const emptyRows = answerRows(p.stateDir, fixture.pollId);
     writeJson(path.join(directory, 'db-answer-empty.json'), emptyRows);
+    assert.equal(emptyRows.length, fixture.candidates.length, 'empty-comment submission must create one vote row per candidate');
+    assert.equal(new Set(emptyRows.map(row => row.answer_id)).size, 1, 'empty-comment submission must create exactly one answer');
     assert.equal(emptyRows[0]?.display_name, fixture.respondentName);
     assert.equal(emptyRows[0]?.comment ?? '', '', 'empty comment answer is saved without a comment');
     const emptyVotes = Object.fromEntries(emptyRows.map(row => [row.candidate_id, row.value]));
@@ -500,6 +506,8 @@ async function driveGuestAnswer(runDir, cdpUrl) {
     const rows = answerRows(p.stateDir, fixture.pollId);
     writeJson(path.join(directory, 'db-answer.json'), rows);
     const byCandidate = Object.fromEntries(rows.map(row => [row.candidate_id, row.value]));
+    assert.equal(rows.length, fixture.candidates.length, 'comment edit must keep one vote row per candidate');
+    assert.equal(new Set(rows.map(row => row.answer_id)).size, 1, 'comment edit must keep exactly one answer');
     assert.equal(rows[0]?.answer_id, emptyRows[0]?.answer_id, 'editing must update the same answer row');
     assert.equal(rows[0]?.display_name, fixture.respondentName);
     assert.equal(rows[0]?.comment, fixture.comment);
