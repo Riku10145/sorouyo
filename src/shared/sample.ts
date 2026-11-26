@@ -66,7 +66,7 @@ const gyoza = {
   ],
   answers: [
     { name: 'たろう', votes: [null, null, null] },
-    { name: 'はな', votes: ['yes', 'yes', 'no'] },
+    { name: 'はな', votes: ['yes', 'yes', 'no'], comment: '19時以降なら参加できます' },
     { name: 'けんじ', votes: ['no', 'maybe', 'yes'] },
     { name: 'ゆい', votes: ['maybe', 'yes', 'no'] },
   ],

@@ -465,15 +465,33 @@ async function driveGuestAnswer(runDir, cdpUrl) {
       await group.getByRole('radio', { name: radioNames[votes[index]] }).click();
     }
     await page.getByLabel('お名前').fill(fixture.respondentName);
-    await page.getByLabel('ひとこと（任意）').fill(fixture.comment);
-    await capture(page, directory, '02-filled');
+    await capture(page, directory, '02-filled-no-comment');
 
     await page.getByRole('button', { name: '回答を送る' }).click();
     await page.getByRole('heading', { name: '回答を送りました' }).waitFor();
-    await capture(page, directory, '03-sent');
+    assert.equal(await page.getByText('ひとこと：').count(), 0, 'empty comment must not render a receipt comment');
+    await capture(page, directory, '03-sent-no-comment');
+
+    const emptyRows = answerRows(p.stateDir, fixture.pollId);
+    writeJson(path.join(directory, 'db-answer-empty.json'), emptyRows);
+    assert.equal(emptyRows[0]?.display_name, fixture.respondentName);
+    assert.equal(emptyRows[0]?.comment ?? '', '', 'empty comment answer is saved without a comment');
+    const emptyVotes = Object.fromEntries(emptyRows.map(row => [row.candidate_id, row.value]));
+    for (const [index, candidate] of fixture.candidates.entries()) {
+      assert.equal(emptyVotes[candidate.id], votes[index], `empty-comment vote stored for ${candidate.id}`);
+    }
+
     await page.getByRole('button', { name: '回答を変更する' }).click();
     await page.getByRole('heading', { name: '候補日' }).waitFor();
-    await capture(page, directory, '04-editing');
+    await page.getByLabel('ひとこと（任意）').fill(fixture.comment);
+    await capture(page, directory, '04-comment-added');
+    await page.getByRole('button', { name: '回答を送る' }).click();
+    await page.getByRole('heading', { name: '回答を送りました' }).waitFor();
+    await page.getByText(`ひとこと：${fixture.comment}`).waitFor();
+    await capture(page, directory, '05-sent-with-comment');
+    await page.getByRole('button', { name: '回答を変更する' }).click();
+    await page.getByRole('heading', { name: '候補日' }).waitFor();
+    await capture(page, directory, '06-editing');
 
     const rows = answerRows(p.stateDir, fixture.pollId);
     writeJson(path.join(directory, 'db-answer.json'), rows);
@@ -495,18 +513,19 @@ async function driveGuestAnswer(runDir, cdpUrl) {
       const radio = reopened.getByRole('radiogroup', { name: groupLabel }).getByRole('radio', { name: radioNames[votes[index]] });
       assert.equal(await radio.getAttribute('aria-checked'), 'true', `reopened vote for ${candidate.id}`);
     }
-    await capture(reopened, directory, '05-reopened');
+    await capture(reopened, directory, '07-reopened');
     return {
       feature: 'guest-answer',
       url: fixture.url,
       assertions: [
         'invite form rendered from the seeded D1 fixture',
-        'three votes, name, and comment were submitted through the browser',
-        'the completion screen returned to the editable form through 回答を変更する',
+        'three votes and a name were submitted through the browser without a comment',
+        'the empty-comment answer completed normally and was read back from isolated local D1 without a comment',
+        'editing the same answer added a comment and the receipt displayed it',
         'answers and votes rows were read back from the isolated local D1 database',
-        'reopening the same invite in the same browser context restored the saved answer',
+        'reopening the same invite in the same browser context restored the saved answer and comment',
       ],
-      artifacts: ['01-open.png', '01-open.aria.txt', '02-filled.png', '02-filled.aria.txt', '03-sent.png', '03-sent.aria.txt', '04-editing.png', '04-editing.aria.txt', 'db-answer.json', '05-reopened.png', '05-reopened.aria.txt'],
+      artifacts: ['01-open.png', '01-open.aria.txt', '02-filled-no-comment.png', '02-filled-no-comment.aria.txt', '03-sent-no-comment.png', '03-sent-no-comment.aria.txt', 'db-answer-empty.json', '04-comment-added.png', '04-comment-added.aria.txt', '05-sent-with-comment.png', '05-sent-with-comment.aria.txt', '06-editing.png', '06-editing.aria.txt', 'db-answer.json', '07-reopened.png', '07-reopened.aria.txt'],
     };
   });
   writeJson(path.join(directory, 'summary.json'), summary);
@@ -564,6 +583,8 @@ async function driveSamplePollStatus(runDir, cdpUrl) {
     await page.getByRole('heading', { name: 'ログインが必要です' }).waitFor();
     await page.getByRole('link', { name: 'サンプルの日程調整画面を見る' }).click();
     await page.getByRole('heading', { name: '餃子の会' }).waitFor();
+    await page.getByRole('heading', { name: 'ひとこと' }).waitFor();
+    await page.locator('.comment-list li').filter({ hasText: 'はな' }).filter({ hasText: '19時以降なら参加できます' }).first().waitFor();
     await capture(page, directory, '01-status');
     await page.getByRole('button', { name: /11月28日（土） 19:00〜.*この候補日を選ぶ/ }).click();
     await page.getByRole('article', { name: /11月28日（土） 19:00〜（選択中）/ }).waitFor();
@@ -577,6 +598,7 @@ async function driveSamplePollStatus(runDir, cdpUrl) {
       url: `${run.url}/polls/sample`,
       assertions: [
         'sample poll status rendered by both direct URL and the signed-out sample link',
+        'the host-status sample rendered the named answer comment with the poll answers',
         'choosing another candidate moved it into the selected candidate card',
         'the confirm button reached the completion screen for the chosen sample candidate',
       ],
