@@ -312,6 +312,32 @@ describe('data', () => {
     expect(limitedGuest.status).toBe(429);
   });
 
+  test('メンバーの回答はゲストの新規回答者枠を消費しない', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const member = await login(app, db, 'code_member');
+    const { groupId, token } = await setupPoll(app, db, host);
+    const invite = await post(app, db, '/api/invite', { token });
+    const { poll } = await invite.json() as { poll: { candidates: { id: string }[] } };
+    const c1 = poll.candidates[0]!.id;
+
+    const joinInvite = await req(app, db, `/api/groups/${groupId}/invites`, { method: 'POST', headers: { cookie: host } });
+    const { token: joinToken } = await joinInvite.json() as { token: string };
+    expect((await post(app, db, '/api/groups/join', { token: joinToken }, member)).status).toBe(201);
+    const memberAnswer = await post(app, db, '/api/invite/answer', { token, name: '花子', votes: [{ candidateId: c1, value: 'yes' }] }, member);
+    expect(memberAnswer.status).toBe(200);
+
+    for (let i = 0; i < 30; i++) {
+      const g = await guest(app, db);
+      const r = await post(app, db, '/api/invite/answer', { token, name: `回答者${i}`, votes: [{ candidateId: c1, value: 'yes' }] }, g);
+      expect(r.status).toBe(200);
+    }
+    const extraGuest = await guest(app, db);
+    const limitedGuest = await post(app, db, '/api/invite/answer', { token, name: '31人目のゲスト', votes: [{ candidateId: c1, value: 'yes' }] }, extraGuest);
+    expect(limitedGuest.status).toBe(429);
+  });
+
   test('回答リンクの範囲は対象の調整と自分の回答だけ（他グループの予定・主催者操作は拒否）', async () => {
     const db = makeDb();
     const app = testApp(db);
