@@ -15,7 +15,7 @@ import {
 } from './auth';
 import { buildDataRoutes } from './data';
 import type { DataEnv } from './context';
-import { GROUP_CREATION_LIMIT } from '../../shared/limits';
+import { ANSWER_INVITE_LIMIT_PER_POLL, EVENT_LIMIT_PER_GROUP, GROUP_CREATION_LIMIT, POLL_LIMIT_PER_GROUP } from '../../shared/limits';
 
 function makeDb(beforeJoinInviteExpiryMigration?: (db: DatabaseSync) => void, includeAnalytics = true): D1Database {
   const db = new DatabaseSync(':memory:');
@@ -25,7 +25,7 @@ function makeDb(beforeJoinInviteExpiryMigration?: (db: DatabaseSync) => void, in
   beforeJoinInviteExpiryMigration?.(db);
   apply('0003_join_invite_expiry.sql');
   if (includeAnalytics) apply('0004_analytics_events.sql');
-  for (const file of ['0005_event_memo.sql', '0006_poll_edit_state.sql', '0007_notification_settings.sql', '0008_group_creator.sql']) apply(file);
+  for (const file of ['0005_event_memo.sql', '0006_poll_edit_state.sql', '0007_notification_settings.sql', '0008_group_creator.sql', '0009_answer_invite_poll_index.sql']) apply(file);
   db.exec('PRAGMA foreign_keys = ON');
   const prepare = (sql: string) => {
     let args: unknown[] = [];
@@ -688,6 +688,91 @@ describe('data', () => {
     expect(attempts.map(response => response.status).sort()).toEqual([201, 409]);
     expect((await post(app, db, '/api/groups', { name: 'さらに追加', color: '#D97A3D' }, host)).status).toBe(409);
     expect((rawDb(db).prepare(`SELECT COUNT(*) AS n FROM groups WHERE created_by = 'user_host'`).get() as { n: number }).n).toBe(GROUP_CREATION_LIMIT);
+  });
+
+  test('調整作成上限: グループごとに数え、同時作成でも上限を超えず削除するとまた作れる', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const created = await post(app, db, '/api/groups', { name: '上限確認' }, host);
+    const { group } = await created.json() as { group: { id: string } };
+    const insert = rawDb(db).prepare(
+      `INSERT INTO polls (id, group_id, creator_id, title, status, created_at) VALUES (?, ?, 'user_host', ?, 'open', ?)`
+    );
+    for (let i = 0; i < POLL_LIMIT_PER_GROUP - 1; i++) {
+      insert.run(`seed_poll_${i}`, group.id, `既存${i}`, '2026-01-01T00:00:00.000Z');
+    }
+
+    const body = { title: '追加', candidates: [{ date: '2026-06-01' }] };
+    const attempts = await Promise.all([
+      post(app, db, `/api/groups/${group.id}/polls`, body, host),
+      post(app, db, `/api/groups/${group.id}/polls`, body, host),
+    ]);
+    expect(attempts.map(response => response.status).sort()).toEqual([201, 409]);
+    const success = attempts.find(response => response.status === 201)!;
+    const failure = attempts.find(response => response.status === 409)!;
+    expect(await failure.json() as { error: string }).toEqual({ error: 'poll_limit' });
+    expect((rawDb(db).prepare(`SELECT COUNT(*) AS n FROM polls WHERE group_id = ?`).get(group.id) as { n: number }).n).toBe(POLL_LIMIT_PER_GROUP);
+
+    const { poll } = await success.json() as { poll: { id: string } };
+    expect((await req(app, db, `/api/polls/${poll.id}`, { method: 'DELETE', headers: { cookie: host } })).status).toBe(204);
+    expect((await post(app, db, `/api/groups/${group.id}/polls`, body, host)).status).toBe(201);
+  });
+
+  test('回答リンク上限: 初回発行を含めて数え、同時再発行でも上限を超えない', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const { pollId } = await setupPoll(app, db, host);
+
+    for (let i = 0; i < ANSWER_INVITE_LIMIT_PER_POLL - 2; i++) {
+      const issued = await req(app, db, `/api/polls/${pollId}/invite`, { method: 'POST', headers: { cookie: host } });
+      expect(issued.status).toBe(201);
+    }
+    const attempts = await Promise.all([
+      req(app, db, `/api/polls/${pollId}/invite`, { method: 'POST', headers: { cookie: host } }),
+      req(app, db, `/api/polls/${pollId}/invite`, { method: 'POST', headers: { cookie: host } }),
+    ]);
+    expect(attempts.map(response => response.status).sort()).toEqual([201, 409]);
+    const failure = attempts.find(response => response.status === 409)!;
+    expect(await failure.json() as { error: string }).toEqual({ error: 'invite_limit' });
+    expect((rawDb(db).prepare(`SELECT COUNT(*) AS n FROM invites WHERE purpose = 'answer' AND poll_id = ?`).get(pollId) as { n: number }).n)
+      .toBe(ANSWER_INVITE_LIMIT_PER_POLL);
+  });
+
+  test('予定作成上限: 通常予定だけを数え、同時作成でも上限を超えず削除するとまた作れる', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const created = await post(app, db, '/api/groups', { name: '予定上限確認' }, host);
+    const { group } = await created.json() as { group: { id: string } };
+
+    rawDb(db).prepare(`INSERT INTO polls (id, group_id, creator_id, title, status, created_at) VALUES (?, ?, 'user_host', ?, 'confirmed', ?)`)
+      .run('source_poll', group.id, '確定済み調整', '2026-01-01T00:00:00.000Z');
+    rawDb(db).prepare(`INSERT INTO events (id, group_id, date, title, source_poll_id, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run('poll_event', group.id, '2026-06-01', '調整からの予定', 'source_poll', '2026-01-01T00:00:00.000Z');
+    const insert = rawDb(db).prepare(
+      `INSERT INTO events (id, group_id, date, title, created_at) VALUES (?, ?, ?, ?, ?)`
+    );
+    for (let i = 0; i < EVENT_LIMIT_PER_GROUP - 1; i++) {
+      insert.run(`seed_event_${i}`, group.id, '2026-06-01', `既存${i}`, '2026-01-01T00:00:00.000Z');
+    }
+
+    const body = { date: '2026-06-02', title: '追加' };
+    const attempts = await Promise.all([
+      post(app, db, `/api/groups/${group.id}/events`, body, host),
+      post(app, db, `/api/groups/${group.id}/events`, body, host),
+    ]);
+    expect(attempts.map(response => response.status).sort()).toEqual([201, 409]);
+    const success = attempts.find(response => response.status === 201)!;
+    const failure = attempts.find(response => response.status === 409)!;
+    expect(await failure.json() as { error: string }).toEqual({ error: 'event_limit' });
+    expect((rawDb(db).prepare(`SELECT COUNT(*) AS n FROM events WHERE group_id = ? AND source_poll_id IS NULL`).get(group.id) as { n: number }).n)
+      .toBe(EVENT_LIMIT_PER_GROUP);
+
+    const { event } = await success.json() as { event: { id: string } };
+    expect((await req(app, db, `/api/events/${event.id}`, { method: 'DELETE', headers: { cookie: host } })).status).toBe(204);
+    expect((await post(app, db, `/api/groups/${group.id}/events`, body, host)).status).toBe(201);
   });
 
   test('グループ詳細: メンバー一覧と件数が取れ、削除は対象グループだけを消してリンクを無効化する', async () => {
