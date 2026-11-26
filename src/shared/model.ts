@@ -7,7 +7,7 @@ export const VOTES = [
   { value: 'no', mark: '×', label: '行けない' },
 ] as const satisfies readonly { value: Vote; mark: string; label: string }[];
 export const DAYS = ['日', '月', '火', '水', '木', '金', '土'] as const;
-export const GROUP_CREATION_LIMIT = 10;
+export const GROUP_CREATION_LIMIT = 5;
 
 const padded = (number: number) => String(number).padStart(2, '0');
 export const dateKey = (date: Date): string => `${date.getFullYear()}-${padded(date.getMonth() + 1)}-${padded(date.getDate())}`;

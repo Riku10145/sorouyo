@@ -10,7 +10,7 @@ test('group creation limit explains how to free capacity without clearing the en
   const context = await browser.newContext({ viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true });
   try {
     const page = await context.newPage();
-    const groups = Array.from({ length: 10 }, (_, index) => ({
+    const groups = Array.from({ length: 5 }, (_, index) => ({
       id: `group-${index}`, name: `グループ${index}`, color: '#D97A3D', role: 'admin',
     }));
     const posts = [];
@@ -25,15 +25,15 @@ test('group creation limit explains how to free capacity without clearing the en
 
     await page.goto(`${appUrl}/groups`);
     await page.getByRole('button', { name: 'グループを作成' }).click();
-    await page.getByLabel('グループ名').fill('11件目のグループ');
+    await page.getByLabel('グループ名').fill('上限後のグループ');
     await page.getByRole('radio', { name: '色 #4E8A5A' }).click();
     await page.getByRole('button', { name: '作成する' }).click();
 
-    await page.getByRole('alert').filter({ hasText: '作成できるグループは10件までです。' }).waitFor();
+    await page.getByRole('alert').filter({ hasText: '作成できるグループは5件までです。' }).waitFor();
     await page.getByText('一覧から不要なグループを開いて削除すると、また作成できます。').waitFor();
-    assert.equal(await page.getByLabel('グループ名').inputValue(), '11件目のグループ');
+    assert.equal(await page.getByLabel('グループ名').inputValue(), '上限後のグループ');
     assert.equal(await page.getByRole('radio', { name: '色 #4E8A5A' }).getAttribute('aria-checked'), 'true');
-    assert.deepEqual(posts, [{ name: '11件目のグループ', color: '#4E8A5A' }]);
+    assert.deepEqual(posts, [{ name: '上限後のグループ', color: '#4E8A5A' }]);
   } finally {
     await context.close();
     await browser.close();

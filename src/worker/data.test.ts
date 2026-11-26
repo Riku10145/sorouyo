@@ -14,6 +14,7 @@ import {
   type WorkosClient,
 } from './auth';
 import { buildDataRoutes, type DataEnv } from './data';
+import { GROUP_CREATION_LIMIT } from '../shared/model';
 
 // --- D1 を node:sqlite でシムする（migrations/*.sql をそのまま適用） ---
 
@@ -597,32 +598,32 @@ describe('data', () => {
     rawDb(db).prepare(`INSERT INTO memberships (group_id, user_id, role, created_at) VALUES (?, ?, 'admin', ?)`)
       .run('group_transition', 'user_host', '2026-01-01T00:00:00.000Z');
 
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < GROUP_CREATION_LIMIT - 1; i++) {
       expect((await post(app, db, '/api/groups', { name: `作成${i}` }, host)).status).toBe(201);
     }
-    expect((await post(app, db, '/api/groups', { name: '11件目' }, host)).status).toBe(409);
+    expect((await post(app, db, '/api/groups', { name: '上限後' }, host)).status).toBe(409);
   });
 
-  test('グループ作成上限: 11件目は409で、参加グループは数えず削除するとまた作れる', async () => {
+  test('グループ作成上限: 上限超過は409で、参加グループは数えず削除するとまた作れる', async () => {
     const db = makeDb();
     const app = testApp(db);
     const host = await login(app, db, 'code_host');
     const member = await login(app, db, 'code_member');
 
     const ownedIds: string[] = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < GROUP_CREATION_LIMIT; i++) {
       const created = await post(app, db, '/api/groups', { name: `作成${i}`, color: '#D97A3D' }, host);
       expect(created.status).toBe(201);
       ownedIds.push((await created.json() as { group: { id: string } }).group.id);
     }
-    const limited = await post(app, db, '/api/groups', { name: '11件目', color: '#D97A3D' }, host);
+    const limited = await post(app, db, '/api/groups', { name: '上限後', color: '#D97A3D' }, host);
     expect(limited.status).toBe(409);
     expect(await limited.json() as { error: string }).toEqual({ error: 'group_limit' });
 
     // 作成したグループを1件消すと、その分だけまた作れる
     expect((await req(app, db, `/api/groups/${ownedIds[0]}`, { method: 'DELETE', headers: { cookie: host } })).status).toBe(204);
 
-    // 招待で参加したグループは作成数に入れない。所属数は10でも作成数は9のまま
+    // 招待で参加したグループは作成数に入れない。所属数は上限でも作成数は上限より1件少ないまま
     const memberCreated = await post(app, db, '/api/groups', { name: '招待元', color: '#4E8A5A' }, member);
     const { group: invitedGroup } = await memberCreated.json() as { group: { id: string } };
     const invite = await req(app, db, `/api/groups/${invitedGroup.id}/invites`, { method: 'POST', headers: { cookie: member } });
@@ -635,7 +636,7 @@ describe('data', () => {
     ]);
     expect(attempts.map(response => response.status).sort()).toEqual([201, 409]);
     expect((await post(app, db, '/api/groups', { name: 'さらに追加', color: '#D97A3D' }, host)).status).toBe(409);
-    expect((rawDb(db).prepare(`SELECT COUNT(*) AS n FROM groups WHERE created_by = 'user_host'`).get() as { n: number }).n).toBe(10);
+    expect((rawDb(db).prepare(`SELECT COUNT(*) AS n FROM groups WHERE created_by = 'user_host'`).get() as { n: number }).n).toBe(GROUP_CREATION_LIMIT);
   });
 
   test('グループ詳細: メンバー一覧と件数が取れ、削除は対象グループだけを消してリンクを無効化する', async () => {
