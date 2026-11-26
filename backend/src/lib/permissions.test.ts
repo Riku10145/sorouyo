@@ -20,6 +20,12 @@ describe('主催者（調整の作成者）', () => {
       expect(can(host, op, target), op).toBe(true);
     }
   });
+  test('グループを外れた作成者には権限が残らない', () => {
+    const removed = { ...target, memberIds: ['user_member'], adminIds: [] };
+    for (const op of ['viewPoll', 'viewTally', 'createPoll', 'answerPoll', 'updateOwnAnswer', 'editPoll', 'confirmPoll', 'manageGroup'] as const) {
+      expect(can(host, op, removed), op).toBe(false);
+    }
+  });
 });
 
 describe('グループメンバー', () => {

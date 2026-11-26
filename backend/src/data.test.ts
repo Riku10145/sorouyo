@@ -852,6 +852,49 @@ describe('data', () => {
     expect((await post(app, db, '/api/groups/join/preview', { token: (await third.json() as { token: string }).token })).status).toBe(200);
   });
 
+  test('メンバー除名・脱退: 作成者だけが除名でき、外れた人は権限を失う', async () => {
+    const db = makeDb();
+    const app = testApp(db);
+    const host = await login(app, db, 'code_host');
+    const member = await login(app, db, 'code_member');
+    const other = await login(app, db, 'code_other');
+    const created = await post(app, db, '/api/groups', { name: 'いつメン' }, host);
+    const { group } = await created.json() as { group: { id: string } };
+    const invite = await req(app, db, `/api/groups/${group.id}/invites`, { method: 'POST', headers: { cookie: host } });
+    const { token } = await invite.json() as { token: string };
+    await post(app, db, '/api/groups/join', { token }, member);
+    await post(app, db, '/api/groups/join', { token }, other);
+
+    const eventRes = await post(app, db, `/api/groups/${group.id}/events`, { date: '2026-06-10', title: '残す予定' }, member);
+    const { event } = await eventRes.json() as { event: { id: string } };
+    const pollRes = await post(app, db, `/api/groups/${group.id}/polls`, {
+      title: '残す調整', candidates: [{ date: '2026-06-11', time: '19:00' }],
+    }, member);
+    const { poll } = await pollRes.json() as { poll: { id: string } };
+
+    // 作成者以外は除名できず、作成者は自分を除名できない
+    expect((await req(app, db, `/api/groups/${group.id}/members/user_member`, { method: 'DELETE', headers: { cookie: other } })).status).toBe(403);
+    expect((await req(app, db, `/api/groups/${group.id}/members/user_other`, { method: 'DELETE', headers: { cookie: member } })).status).toBe(403);
+    expect((await req(app, db, `/api/groups/${group.id}/members/user_host`, { method: 'DELETE', headers: { cookie: host } })).status).toBe(403);
+
+    // 作成者が除名すると所属だけが消え、過去の予定・調整は残る。漏洩リンクに備えて参加リンクは失効する
+    expect((await req(app, db, `/api/groups/${group.id}/members/user_member`, { method: 'DELETE', headers: { cookie: host } })).status).toBe(204);
+    expect((await req(app, db, `/api/groups/${group.id}`, { headers: { cookie: member } })).status).toBe(403);
+    expect((await mutate(app, db, 'PATCH', `/api/events/${event.id}`, { date: '2026-06-10', title: '変更' }, member)).status).toBe(403);
+    expect((await req(app, db, `/api/polls/${poll.id}`, { method: 'DELETE', headers: { cookie: member } })).status).toBe(403);
+    expect((await post(app, db, '/api/groups/join', { token }, member)).status).toBe(404);
+    const afterRemoval = await req(app, db, `/api/groups/${group.id}`, { headers: { cookie: host } });
+    const removalDetail = await afterRemoval.json() as { members: { id: string }[]; counts: { events: number; polls: number; members: number } };
+    expect(removalDetail.members.map(m => m.id)).toEqual(['user_host', 'user_other']);
+    expect(removalDetail.counts).toEqual({ events: 1, polls: 1, members: 2 });
+
+    // メンバーは自分で脱退できる。作成者は脱退できない
+    expect((await req(app, db, `/api/groups/${group.id}/members/user_other`, { method: 'DELETE', headers: { cookie: other } })).status).toBe(204);
+    expect((await req(app, db, `/api/groups/${group.id}`, { headers: { cookie: other } })).status).toBe(403);
+    const afterLeave = await req(app, db, `/api/groups/${group.id}`, { headers: { cookie: host } });
+    expect((await afterLeave.json() as { counts: { members: number } }).counts.members).toBe(1);
+  });
+
   test('予定: 追加・月カレンダー・詳細は所属メンバーのみ（他グループの予定は見えない）', async () => {
     const db = makeDb();
     const app = testApp(db);

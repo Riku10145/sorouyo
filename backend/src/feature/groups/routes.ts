@@ -5,7 +5,7 @@ import { createGroupBody, inviteBody } from '../../../../shared/schema';
 import { measureUsageStart } from '../../analytics';
 import { GUEST_COOKIE, checkOrigin, verifyGuestId } from '../../auth';
 import type { DataEnv } from '../../context';
-import { type GetSubject, memberRole } from '../../lib/access';
+import { type GetSubject, groupCreatorId, memberRole } from '../../lib/access';
 import { type GroupRow, type InviteRow, all } from '../../lib/db';
 import { findInvite } from '../../lib/invites';
 import { now } from '../../lib/time';
@@ -147,6 +147,31 @@ export function groupsRoutes(subjectOf: GetSubject) {
     return c.json({ group: { ...group, role: existing ?? 'member' }, already: existing !== undefined } as const, existing ? 200 : 201);
   })
 
+  // メンバー除名と本人の脱退。作成者だけが他人を除名でき、作成者自身はグループ削除まで残る
+  .delete('/groups/:id/members/:userId', async (c) => {
+    if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
+    const subject = await subjectOf(c);
+    if (!subject.userId) return c.json({ error: 'unauthenticated' } as const, 401);
+    const groupId = c.req.param('id');
+    const targetUserId = c.req.param('userId');
+    if (!(await memberRole(c, groupId, subject.userId))) return c.json({ error: 'forbidden' } as const, 403);
+    const creatorId = await groupCreatorId(c, groupId);
+    if (targetUserId === subject.userId) {
+      if (subject.userId === creatorId) return c.json({ error: 'creator_cannot_leave' } as const, 403);
+      const result = await c.env.DB.prepare(`DELETE FROM memberships WHERE group_id = ? AND user_id = ?`).bind(groupId, targetUserId).run();
+      if (!result.meta.changes) return c.json({ error: 'not_found' } as const, 404);
+      return c.body(null, 204);
+    }
+    if (subject.userId !== creatorId) return c.json({ error: 'forbidden' } as const, 403);
+    if (!(await memberRole(c, groupId, targetUserId))) return c.json({ error: 'not_found' } as const, 404);
+    const revokedAt = now();
+    await c.env.DB.batch([
+      c.env.DB.prepare(`DELETE FROM memberships WHERE group_id = ? AND user_id = ?`).bind(groupId, targetUserId),
+      c.env.DB.prepare(`UPDATE invites SET revoked_at = ? WHERE purpose = 'join' AND group_id = ? AND revoked_at IS NULL`).bind(revokedAt, groupId),
+    ]);
+    return c.body(null, 204);
+  })
+
   // グループ詳細（メンバー以上）。メンバー一覧と、削除確認に出す件数を含める
   .get('/groups/:id', async (c) => {
     const subject = await subjectOf(c);
@@ -156,7 +181,7 @@ export function groupsRoutes(subjectOf: GetSubject) {
     if (!role) return c.json({ error: 'forbidden' } as const, 403);
     const group = await c.env.DB.prepare(`SELECT id, name, color FROM groups WHERE id = ?`).bind(groupId).first<GroupRow>();
     if (!group) return c.json({ error: 'not_found' } as const, 404);
-    const [members, counts, joinInvite] = await Promise.all([
+    const [members, counts, joinInvite, creatorId] = await Promise.all([
       all<{ user_id: string; display_name: string | null; email: string | null; role: 'admin' | 'member' }>(c.env.DB.prepare(
         `SELECT m.user_id, u.display_name, u.email, m.role FROM memberships m JOIN users u ON u.id = m.user_id
          WHERE m.group_id = ? ORDER BY m.created_at`
@@ -166,9 +191,11 @@ export function groupsRoutes(subjectOf: GetSubject) {
                 (SELECT COUNT(*) FROM polls WHERE group_id = ?) AS polls`
       ).bind(groupId, groupId).first<{ events: number; polls: number }>(),
       latestJoinInvite(c, groupId),
+      groupCreatorId(c, groupId),
     ]);
     return c.json({
       group: { ...group, role },
+      creatorId: creatorId ?? null,
       members: members.map(m => ({ id: m.user_id, name: m.display_name ?? m.email ?? '名無し', role: m.role, you: m.user_id === subject.userId })),
       counts: { events: counts?.events ?? 0, polls: counts?.polls ?? 0, members: members.length },
       joinInvite: role === 'admin' && joinInvite ? presentJoinInvite(joinInvite) : null,
