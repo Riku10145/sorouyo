@@ -4,10 +4,10 @@ import { checkReleaseAge } from './check-release-age.mjs';
 
 const now = Date.parse('2026-11-22T00:00:00Z');
 const integrity = 'sha512-test';
-const metadata = (time) => ({
+const metadata = (time, tarball = 'https://registry.npmjs.org/example.tgz') => ({
   time,
   versions: Object.fromEntries(Object.keys(time).map((version) => [version, {
-    dist: { integrity, tarball: 'https://registry.npmjs.org/example.tgz' },
+    dist: { integrity, tarball },
   }])),
 });
 const lock = {
@@ -50,7 +50,7 @@ test('skips bundled entries without resolved URLs, but still checks the parent',
     now,
     fetchMetadata: async (url) => {
       urls.push(url);
-      return { ok: true, json: async () => metadata({ '1.0.0': '2026-11-01T00:00:00Z' }) };
+      return { ok: true, json: async () => metadata({ '1.0.0': '2026-11-01T00:00:00Z' }, 'https://registry.npmjs.org/parent.tgz') };
     },
   });
   assert.deepEqual(urls, ['https://registry.npmjs.org/parent']);
@@ -148,8 +148,23 @@ test('fails closed when registry integrity is missing or empty', async () => {
         time: { '1.0.0': '2026-11-01T00:00:00Z', '2.0.0': '2026-11-01T00:00:00Z' }, versions,
       }) }),
     });
-    assert.equal(result.failures.length, 2);
-    assert.ok(result.failures.every((failure) => /missing registry dist.integrity/.test(failure)));
+    const integrityFailures = result.failures.filter((failure) => /missing registry dist.integrity/.test(failure));
+    assert.equal(integrityFailures.length, 2);
+  }
+});
+
+test('fails closed when registry tarball is missing or empty', async () => {
+  for (const dist of [undefined, {}, { integrity }, { integrity, tarball: '' }]) {
+    const versionMetadata = dist === undefined ? {} : { dist };
+    const result = await checkReleaseAge(lock, {
+      now,
+      fetchMetadata: async () => ({ ok: true, json: async () => ({
+        time: { '1.0.0': '2026-11-01T00:00:00Z', '2.0.0': '2026-11-01T00:00:00Z' },
+        versions: { '1.0.0': versionMetadata, '2.0.0': versionMetadata },
+      }) }),
+    });
+    const tarballFailures = result.failures.filter((failure) => /missing registry dist.tarball/.test(failure));
+    assert.equal(tarballFailures.length, 2);
   }
 });
 
@@ -183,7 +198,7 @@ test('limits concurrent requests and deduplicates name/version pairs', async () 
       peak = Math.max(peak, ++active);
       await new Promise((resolve) => setImmediate(resolve));
       active--;
-      return { ok: true, json: async () => metadata({ '1.0.0': '2026-11-01T00:00:00Z' }) };
+      return { ok: true, json: async () => metadata({ '1.0.0': '2026-11-01T00:00:00Z' }, 'https://registry.npmjs.org/package.tgz') };
     },
   });
   assert.equal(peak, 8);
