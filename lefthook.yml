@@ -1,0 +1,11 @@
+output:
+  - meta
+  - summary
+  - success
+  - failure
+  - execution_info
+
+pre-commit:
+  commands:
+    check:
+      run: npm run check
