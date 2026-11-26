@@ -688,6 +688,15 @@ async function driveLoginBoundary(runDir, cdpUrl) {
   printJson({ ok: true, evidenceDir: directory, summary });
 }
 
+async function assertExactPlanNotice(page, notice) {
+  const actual = await page.locator('section[aria-labelledby="free-plan-heading"] p').textContent();
+  assert.equal(actual?.replace(/\s+/g, ' ').trim(), notice);
+  const body = await page.locator('body').textContent() ?? '';
+  for (const forbidden of [/[¥￥]\s*\d/, /\d[\d,]*\s*円/, /月額/, /年額/, /課金開始/, /有料機能/, /解約/, /返金/]) {
+    assert.equal(forbidden.test(body), false, `plan notice contains undecided billing term matching ${forbidden}`);
+  }
+}
+
 async function drivePlanFreeNotice(runDir, cdpUrl) {
   const { p, run } = loadRun(runDir);
   const directory = path.join(p.evidenceDir, 'plan-free-notice');
@@ -697,19 +706,19 @@ async function drivePlanFreeNotice(runDir, cdpUrl) {
     await page.getByRole('link', { name: 'プラン' }).click();
     await page.getByRole('heading', { name: 'プラン' }).waitFor();
     await page.getByRole('heading', { name: 'ご案内' }).waitFor();
-    await page.getByText(notice).waitFor();
+    await assertExactPlanNotice(page, notice);
     await capture(page, directory, '01-plan-from-nav');
     await page.goto(`${run.url}/plan`);
     await page.getByRole('heading', { name: 'プラン' }).waitFor();
-    await page.getByText(notice).waitFor();
+    await assertExactPlanNotice(page, notice);
     await capture(page, directory, '02-plan-direct');
     return {
       feature: 'plan-free-notice',
       url: `${run.url}/plan`,
       assertions: [
         'the bottom navigation plan link opened the plan page',
-        'the plan page rendered the free-period notice with the ten-created-group limit, invitation exclusion, continued free use, and free guest answers',
-        'the direct /plan route rendered the same notice',
+        'the plan page rendered the exact free-period notice with no appended or undecided billing terms',
+        'the direct /plan route rendered the same exact notice',
       ],
       artifacts: ['01-plan-from-nav.png', '01-plan-from-nav.aria.txt', '02-plan-direct.png', '02-plan-direct.aria.txt'],
     };

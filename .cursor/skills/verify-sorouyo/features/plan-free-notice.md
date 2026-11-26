@@ -20,8 +20,8 @@ Preconditions:
 - `launch` が完了し、`doctor --run-dir "$RUN_DIR"` が `ok: true`。
 - browser context は未ログインでよい。helper は毎回新しい context を使う。
 
-- **Open the plan page from navigation.** Run `node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs drive plan-free-notice --run-dir "$RUN_DIR"`. The helper opens `/`, chooses `プラン`, and requires the headings `プラン` and `ご案内` plus the full free-period notice.
-- **Open the direct route.** The same command opens `/plan` directly and requires the same heading and notice.
+- **Open the plan page from navigation.** Run `node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs drive plan-free-notice --run-dir "$RUN_DIR"`. The helper opens `/`, chooses `プラン`, and requires the headings `プラン` and `ご案内` plus the exact free-period notice with no appended or undecided billing terms.
+- **Open the direct route.** The same command opens `/plan` directly and requires the same heading and exact notice.
 - **Proof.** Read `$RUN_DIR/evidence/plan-free-notice/summary.json`, `01-plan-from-nav.png`, `01-plan-from-nav.aria.txt`, `02-plan-direct.png`, and `02-plan-direct.aria.txt`.
 
 ## Gotchas
