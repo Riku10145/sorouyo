@@ -21,7 +21,7 @@ const usage = `Usage:
   node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs drive FEATURE --run-dir DIR [--cdp URL]
   node .cursor/skills/verify-sorouyo/bin/verify-sorouyo.mjs cleanup --run-dir DIR
 
-Features: guest-answer, sample-calendar, sample-poll-status, invite-error-states, login-boundary
+Features: guest-answer, sample-calendar, sample-poll-status, invite-error-states, login-boundary, plan-free-notice
 `;
 
 function parse(argv) {
@@ -688,6 +688,49 @@ async function driveLoginBoundary(runDir, cdpUrl) {
   printJson({ ok: true, evidenceDir: directory, summary });
 }
 
+async function assertExactPlanNotice(page, notice) {
+  const noticeLocator = page.locator('section[aria-labelledby="free-plan-heading"] p');
+  await noticeLocator.waitFor({ state: 'visible' });
+  const box = await noticeLocator.boundingBox();
+  assert.ok(box && box.width > 0 && box.height > 0, 'plan notice is not visibly rendered');
+  const actual = await noticeLocator.innerText();
+  assert.equal(actual.replace(/\s+/g, ' ').trim(), notice);
+  const body = await page.locator('body').innerText();
+  for (const forbidden of [/[¥￥]/, /円/, /月額/, /年額/, /課金開始/, /有料機能/, /解約/, /返金/]) {
+    assert.equal(forbidden.test(body), false, `plan notice contains undecided billing term matching ${forbidden}`);
+  }
+}
+
+async function drivePlanFreeNotice(runDir, cdpUrl) {
+  const { p, run } = loadRun(runDir);
+  const directory = path.join(p.evidenceDir, 'plan-free-notice');
+  const notice = 'いまは無料期間です。1人5グループまで作れます（招待されて参加したグループは数えません）。今後有料プランを始める場合も、それまでに作ったグループはずっと無料で使えます。日程調整への回答は、登録なしでいつでも無料です。';
+  const summary = await withMobilePage(cdpUrl, async page => {
+    await page.goto(`${run.url}/`);
+    await page.getByRole('link', { name: 'プラン' }).click();
+    await page.getByRole('heading', { name: 'プラン' }).waitFor();
+    await page.getByRole('heading', { name: 'ご案内' }).waitFor();
+    await assertExactPlanNotice(page, notice);
+    await capture(page, directory, '01-plan-from-nav');
+    await page.goto(`${run.url}/plan`);
+    await page.getByRole('heading', { name: 'プラン' }).waitFor();
+    await assertExactPlanNotice(page, notice);
+    await capture(page, directory, '02-plan-direct');
+    return {
+      feature: 'plan-free-notice',
+      url: `${run.url}/plan`,
+      assertions: [
+        'the bottom navigation plan link opened the plan page',
+        'the plan page rendered the exact free-period notice with no appended or undecided billing terms',
+        'the direct /plan route rendered the same exact notice',
+      ],
+      artifacts: ['01-plan-from-nav.png', '01-plan-from-nav.aria.txt', '02-plan-direct.png', '02-plan-direct.aria.txt'],
+    };
+  });
+  writeJson(path.join(directory, 'summary.json'), summary);
+  printJson({ ok: true, evidenceDir: directory, summary });
+}
+
 async function drive(positional, options) {
   const feature = positional[0];
   const runDir = requiredRunDir(options);
@@ -698,6 +741,7 @@ async function drive(positional, options) {
     'sample-poll-status': driveSamplePollStatus,
     'invite-error-states': driveInviteErrorStates,
     'login-boundary': driveLoginBoundary,
+    'plan-free-notice': drivePlanFreeNotice,
   };
   if (!drivers[feature]) throw new Error(`unknown feature ${feature}; expected one of ${Object.keys(drivers).join(', ')}`);
   loadRun(runDir);

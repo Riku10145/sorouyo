@@ -3,14 +3,16 @@ import { useMe, fetchGroups, fetchGroup, createGroup, updateGroup, deleteGroup, 
 import { Brand, Icon, Dot, toast, GROUP_COLORS, DEFAULT_GROUP_COLOR, type DisplayGroup } from '../design/ui';
 import { AppShell } from './Shell';
 import { LoginCard } from './Auth';
+import { GROUP_CREATE_FREE_NOTICE } from '../../shared/planCopy';
 import { GROUP_CREATION_LIMIT } from '../../shared/model';
 
 /** 名前+色の入力フォーム。エラー時も入力した名前を消さない */
-export function GroupForm({ initial, submitLabel, onSubmit, onCancel }: {
+export function GroupForm({ initial, submitLabel, onSubmit, onCancel, showFreeNotice = false }: {
   initial?: { name: string; color: string | null };
   submitLabel: string;
   onSubmit: (name: string, color: string) => Promise<string | null>;
   onCancel?: () => void;
+  showFreeNotice?: boolean;
 }) {
   const [name, setName] = useState(initial?.name ?? '');
   const [color, setColor] = useState(initial?.color ?? DEFAULT_GROUP_COLOR);
@@ -41,6 +43,7 @@ export function GroupForm({ initial, submitLabel, onSubmit, onCancel }: {
       </div>
     </fieldset>
     {error && <p className="form-error" role="alert">{error}</p>}
+    {showFreeNotice && <p className="hint">{GROUP_CREATE_FREE_NOTICE}</p>}
     <div className="about-actions">
       {onCancel && <button type="button" className="ghost-btn" onClick={onCancel}>キャンセル</button>}
       <button type="submit" className="primary-btn" disabled={busy}>{busy ? '保存中…' : submitLabel}</button>
@@ -87,7 +90,7 @@ export function Groups() {
         </ul>
         {creating
           ? <section className="card group-create"><h2>グループを作成</h2>
-            <GroupForm submitLabel="作成する" onSubmit={async (name, color) => {
+            <GroupForm submitLabel="作成する" showFreeNotice onSubmit={async (name, color) => {
               const created = await createGroup(name, color);
               if (created.status === 409) return `作成できるグループは${GROUP_CREATION_LIMIT}件までです。一覧から不要なグループを開き、作成済みが${GROUP_CREATION_LIMIT - 1}件以下になるまで削除すると、また作成できます。`;
               if (!created.group) return '作成できませんでした';

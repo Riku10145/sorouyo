@@ -16,6 +16,7 @@ import { Groups, GroupDetail } from './screens/Groups';
 import { JoinGroup } from './screens/Join';
 import { EventDetail } from './screens/EventDetail';
 import { Settings } from './screens/Settings';
+import { Plan } from './screens/Plan';
 import { api } from './api';
 import { scheduleEventNotifications } from './notify';
 import './style.css';
@@ -28,6 +29,7 @@ function Screen() {
   if (pathname === '/r' || pathname === '/r/') return <GuestAnswer />;
   if (pathname === '/join' || pathname === '/join/') return <JoinGroup />;
   if (pathname === '/settings' || pathname === '/settings/') return <Settings />;
+  if (pathname === '/plan' || pathname === '/plan/') return <Plan />;
   if (pathname === '/groups' || pathname === '/groups/') return <Groups />;
   if (pathname === '/polls' || pathname === '/polls/') return <Polls />;
   if (pathname === '/polls/new' || pathname === '/polls/new/') return <PollCreate />;
