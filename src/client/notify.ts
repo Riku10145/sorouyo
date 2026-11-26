@@ -50,6 +50,23 @@ export async function fireTodayNotification(now: Date): Promise<boolean> {
 }
 
 let scheduled = false;
+let timer: ReturnType<typeof setTimeout> | undefined;
+
+const DAY = 24 * 60 * 60 * 1000;
+
+/** 次回の発射時刻にタイマーを仕掛ける。発射後は翌日以降も届くよう設定を読み直して再度仕掛ける */
+function armTimer(time: string): void {
+  clearTimeout(timer);
+  const current = new Date();
+  let delay = fireAt(current, time).getTime() - current.getTime();
+  if (delay <= 0) delay += DAY; // 今日の指定時刻を過ぎていれば明日の分
+  timer = setTimeout(() => {
+    void fireTodayNotification(new Date()).then(async () => {
+      const latest = await fetchNotificationSettings().catch(() => null);
+      if (latest?.enabled) armTimer(latest.time); // 無効化されていればここで止まる
+    });
+  }, delay);
+}
 
 /** アプリ起動時に1度だけ呼ぶ。未ログインや未許可なら何もしない */
 export function scheduleEventNotifications(): void {
@@ -60,13 +77,11 @@ export function scheduleEventNotifications(): void {
     if (!settings?.enabled) return;
     const current = new Date();
     const lastFired = localStorage.getItem(FIRED_KEY);
+    // 開いた時点で当日分が未通知ならその場で1回出す
     if (shouldFire(current, settings.time, lastFired)) {
       void fireTodayNotification(current);
-      return;
     }
-    // 指定時刻がまだなら、その時刻にタイマーを仕掛ける（アプリを開いている間に届く）
-    const delay = fireAt(current, settings.time).getTime() - current.getTime();
-    if (delay > 0) setTimeout(() => void fireTodayNotification(new Date()), delay);
+    armTimer(settings.time);
   }).catch(() => { /* 設定を読めない環境では通知しない */ });
 }
 
