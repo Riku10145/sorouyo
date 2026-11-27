@@ -2,8 +2,9 @@ import type { EventInput } from '../../../../shared/schema';
 import type { CalEvent } from '../../api/calendar';
 import { api } from '../../api/client';
 
-export async function createEvent(groupId: string, body: Omit<EventInput, 'memo'>): Promise<{ id: string } | null> {
+export async function createEvent(groupId: string, body: Omit<EventInput, 'memo'>): Promise<{ id: string } | 'limit' | null> {
   const response = await api.api.groups[':id'].events.$post({ param: { id: groupId }, json: { date: body.date, title: body.title, time: body.time ?? null } });
+  if (response.status === 409) return 'limit';
   if (!response.ok) return null;
   return (await response.json()).event;
 }

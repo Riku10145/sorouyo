@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { EVENT_LIMIT_PER_GROUP } from '../../../../shared/limits';
 import { eventBody } from '../../../../shared/schema';
 import { checkOrigin } from '../../auth';
 import type { DataEnv } from '../../context';
@@ -70,9 +71,15 @@ export function eventsRoutes(subjectOf: GetSubject) {
     if (!(await memberRole(c, groupId, subject.userId))) return c.json({ error: 'forbidden' } as const, 403);
     const body = c.req.valid('json');
     const id = crypto.randomUUID();
-    await c.env.DB.prepare(
-      `INSERT INTO events (id, group_id, date, start_time, title, memo, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, groupId, body.date, body.time ?? null, body.title, body.memo ?? null, now()).run();
+    const result = await c.env.DB.prepare(
+      `INSERT INTO events (id, group_id, date, start_time, title, memo, created_at)
+       SELECT ?, ?, ?, ?, ?, ?, ?
+       WHERE (
+         SELECT COUNT(*) FROM events
+         WHERE group_id = ? AND source_poll_id IS NULL
+       ) < ?`
+    ).bind(id, groupId, body.date, body.time ?? null, body.title, body.memo ?? null, now(), groupId, EVENT_LIMIT_PER_GROUP).run();
+    if (!result.meta.changes) return c.json({ error: 'event_limit' } as const, 409);
     return c.json({ event: { id } } as const, 201);
   })
 

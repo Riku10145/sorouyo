@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import type { GroupInfo } from '../../../api/groups';
 import { toast } from '../../../components/Toaster';
 import { dateLabel } from '../../../lib/date';
+import { EVENT_LIMIT_PER_GROUP } from '../../../../../shared/limits';
 import { createEvent } from '../api';
 
 export function AddEventSheet({ groups, date, onClose, onCreated }: {
@@ -46,6 +47,10 @@ export function AddEventSheet({ groups, date, onClose, onCreated }: {
     setBusy(true);
     const created = await createEvent(groupId, { date, title: title.trim(), time: time || null }).catch(() => null);
     setBusy(false);
+    if (created === 'limit') {
+      setError(`このグループの通常予定は${EVENT_LIMIT_PER_GROUP}件までです。不要な予定を削除してから追加してください。`);
+      return;
+    }
     if (!created) { setError('保存できませんでした'); return; }
     toast('予定を追加しました');
     onCreated();

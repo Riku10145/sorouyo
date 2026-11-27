@@ -2,9 +2,10 @@ import { useRef } from 'react';
 import { AppShell } from '../../../components/AppShell';
 import { Icon } from '../../../components/Icon';
 import { LoginLink } from '../../../components/LoginCard';
+import { toast } from '../../../components/Toaster';
 import { useMe } from '../../../hooks/useMe';
 import { confirmCandidate, issueInviteToken, unconfirmPoll } from '../api/polls';
-import { PollStatus } from '../components/PollStatus';
+import { PollStatus, type CopyLinkResult } from '../components/PollStatus';
 import { useMemberPoll } from '../hooks/useMemberPoll';
 import { memberPollView } from '../lib/poll';
 import { displayName } from '../../../lib/account';
@@ -13,7 +14,7 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
   const me = useMe();
   const result = useMemberPoll(id);
   // hooks は早期returnより前に置く。Promise を保持して同時コピーの重複発行も防ぐ
-  const issuedLink = useRef<Promise<string> | null>(null);
+  const issuedLink = useRef<Promise<CopyLinkResult> | null>(null);
   if (result === 'loading') return null;
   if (!result.poll) {
     const login = result.status === 401;
@@ -30,14 +31,17 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
   if (me === undefined) return null; // 主催者判定が必要な詳細表示だけを待つ
   const remote = result.poll;
   const expired = remote.status === 'open' && !!remote.deadlineAt && remote.deadlineAt <= new Date().toISOString();
-  const link = async () => {
-    issuedLink.current ??= issueInviteToken(remote.id).then(token =>
-      token ? `${window.location.origin}/r#${token}` : Promise.reject(new Error('no token')));
+  const link = async (): Promise<CopyLinkResult> => {
+    issuedLink.current ??= issueInviteToken(remote.id).then(token => {
+      if (token === 'limit') return { error: 'limit' } as const;
+      if (!token) return Promise.reject(new Error('no token'));
+      return { url: `${window.location.origin}/r#${token}` } as const;
+    });
     try {
       return await issuedLink.current;
     } catch {
       issuedLink.current = null; // 失敗は保持しない。次のコピーで発行をやり直せるように
-      return '';
+      return { error: 'error' };
     }
   };
   const viewerName = me ? displayName(me) : undefined;
@@ -49,5 +53,9 @@ export function RemotePollStatus({ id, selectedDate }: { id: string; selectedDat
     onConfirm={index => confirmCandidate(remote.id, remote.candidates[index]!.id)}
     onUnconfirm={eventId => unconfirmPoll(remote.id, eventId)}
     onCopyLink={link}
-    onAnswerLink={async () => { const url = await link(); window.location.href = url; }} />;
+    onAnswerLink={async () => {
+      const result = await link();
+      if ('url' in result) window.location.href = result.url;
+      else toast(result.error === 'limit' ? 'この調整の回答リンクは発行上限に達しました' : '回答リンクを作れませんでした');
+    }} />;
 }

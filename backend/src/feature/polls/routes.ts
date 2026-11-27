@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { POLL_LIMIT_PER_GROUP } from '../../../../shared/limits';
 import { createPollBody, confirmBody, unconfirmBody, updatePollBody } from '../../../../shared/schema';
 import { checkOrigin } from '../../auth';
 import type { DataEnv } from '../../context';
@@ -26,20 +27,24 @@ export function pollsRoutes(subjectOf: GetSubject) {
     const token = newToken();
     const stmts = [
       c.env.DB.prepare(
-        `INSERT INTO polls (id, group_id, creator_id, title, deadline_at, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)`
+        `INSERT INTO polls (id, group_id, creator_id, title, deadline_at, status, created_at)
+         SELECT ?, ?, ?, ?, ?, 'open', ?
+         WHERE (SELECT COUNT(*) FROM polls WHERE group_id = ?) < ?`
       // 締切はミリ秒つきISOに正規化して保存し、 ACCEPTING_POLL_WHERE の文字列比較と形式を揃える
-      ).bind(pollId, groupId, subject.userId, body.title, body.deadlineAt ? new Date(body.deadlineAt).toISOString() : null, now()),
+      ).bind(pollId, groupId, subject.userId, body.title, body.deadlineAt ? new Date(body.deadlineAt).toISOString() : null, now(), groupId, POLL_LIMIT_PER_GROUP),
       ...body.candidates.map((cand, i) =>
-        c.env.DB.prepare(`INSERT INTO candidates (id, poll_id, position, date, start_time) VALUES (?, ?, ?, ?, ?)`)
-          .bind(crypto.randomUUID(), pollId, i, cand.date, cand.time ?? null)),
-      c.env.DB.prepare(`INSERT INTO invites (id, purpose, poll_id, token_hash, created_by, created_at) VALUES (?, 'answer', ?, ?, ?, ?)`)
-        .bind(crypto.randomUUID(), pollId, await sha256(token), subject.userId, now()),
+        c.env.DB.prepare(`INSERT INTO candidates (id, poll_id, position, date, start_time)
+          SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM polls WHERE id = ?)`)
+          .bind(crypto.randomUUID(), pollId, i, cand.date, cand.time ?? null, pollId)),
+      c.env.DB.prepare(`INSERT INTO invites (id, purpose, poll_id, token_hash, created_by, created_at)
+        SELECT ?, 'answer', ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM polls WHERE id = ?)`)
+        .bind(crypto.randomUUID(), pollId, await sha256(token), subject.userId, now(), pollId),
     ];
-    await c.env.DB.batch(stmts);
+    const results = await c.env.DB.batch(stmts);
+    if (!results[0]?.meta?.changes) return c.json({ error: 'poll_limit' } as const, 409);
     return c.json({ poll: { id: pollId }, token } as const, 201);
   })
 
-  // 回答リンクの再発行（メンバー以上）。漏えい時に使えるよう、旧リンクは同一バッチで失効させる
   .post('/polls/:id/invite', async (c) => {
     if (!checkOrigin(c)) return c.json({ error: 'bad_origin' } as const, 403);
     const subject = await subjectOf(c);
@@ -50,6 +55,7 @@ export function pollsRoutes(subjectOf: GetSubject) {
     // 回答リンクはベアラートークン。再発行で既存リンクを失効させると、
     // 主催がコピーするたびに共有済みリンクが死ぬため、旧リンクはそのまま有効にしておく
     const token = await newAnswerInvite(c, poll.id, subject.userId);
+    if (!token) return c.json({ error: 'invite_limit' } as const, 409);
     return c.json({ token } as const, 201);
   })
 
