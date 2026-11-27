@@ -33,7 +33,7 @@ export interface PollTarget {
 }
 
 const isMember = (s: Subject, t: PollTarget) => s.userId !== undefined && t.memberIds.includes(s.userId);
-const isCreator = (s: Subject, t: PollTarget) => s.userId !== undefined && s.userId === t.creatorId;
+const isCreator = (s: Subject, t: PollTarget) => isMember(s, t) && s.userId === t.creatorId;
 const isGuest = (s: Subject, t: PollTarget) => !s.userId && s.guestId !== undefined && t.inviteValid;
 
 export function can(subject: Subject, operation: Operation, target: PollTarget): boolean {

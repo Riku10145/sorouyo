@@ -66,7 +66,7 @@ export function GroupDetail({ id, selectedDate }: { id: string; selectedDate: st
           }} onCancel={() => setEditing(false)} />
           : <button type="button" className="ghost-btn" onClick={() => setEditing(true)}><Icon name="settings" size={18} />名前・色を変更</button>}
       </section>}
-      <GroupMembers detail={detail} />
+      <GroupMembers detail={detail} onChange={next => setDetail(next)} />
       {admin && <DeleteGroup group={group} counts={counts} />}
     </div>
   </AppShell>;

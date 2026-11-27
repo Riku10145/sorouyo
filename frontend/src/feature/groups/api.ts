@@ -10,6 +10,7 @@ export interface JoinInviteInfo {
 
 export interface GroupDetail {
   group: GroupInfo;
+  creatorId: string | null;
   members: { id: string; name: string; role: 'admin' | 'member'; you: boolean }[];
   counts: { events: number; polls: number; members: number };
   joinInvite: JoinInviteInfo | null;
@@ -31,6 +32,11 @@ export async function updateGroup(id: string, name: string, color: string | null
 
 export async function deleteGroup(id: string): Promise<boolean> {
   const response = await api.api.groups[':id'].$delete({ param: { id } });
+  return response.status === 204;
+}
+
+export async function removeGroupMember(groupId: string, userId: string): Promise<boolean> {
+  const response = await api.api.groups[':id'].members[':userId'].$delete({ param: { id: groupId, userId } });
   return response.status === 204;
 }
 

@@ -343,7 +343,8 @@ fieldset.field legend { padding: 0; font-size: 13px; font-weight: 700; color: va
 .member-list { display: flex; flex-direction: column; }
 .member-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-top: 1px solid var(--color-line-soft); font-size: 14px; }
 .member-row:first-child { border-top: 0; }
-.member-name { display: flex; align-items: center; gap: 8px; }
+.member-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.member-side { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .hint { font-size: 12px; line-height: 1.7; color: var(--color-muted); }
 .hint a { color: var(--color-ink); }
 .about-actions { display: flex; gap: 10px; justify-content: flex-end; }

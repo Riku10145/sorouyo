@@ -49,3 +49,14 @@ export const memberRole = async (c: C, groupId: string, userId: string) =>
   (await c.env.DB.prepare(
     `SELECT role FROM memberships WHERE group_id = ? AND user_id = ?`
   ).bind(groupId, userId).first<{ role: 'admin' | 'member' }>())?.role;
+
+/** created_by がない移行期間のグループでは最初のadminを作成者とみなす。 */
+export const groupCreatorId = async (c: C, groupId: string) => {
+  const row = await c.env.DB.prepare(
+    `SELECT g.created_by,
+            (SELECT m.user_id FROM memberships m WHERE m.group_id = g.id AND m.role = 'admin' ORDER BY m.created_at, m.user_id LIMIT 1) AS legacy_creator_id
+     FROM groups g WHERE g.id = ?`
+  ).bind(groupId).first<{ created_by: string | null; legacy_creator_id: string | null }>();
+  if (!row) return undefined;
+  return row.created_by ?? row.legacy_creator_id ?? null;
+};
