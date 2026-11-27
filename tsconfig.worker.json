@@ -6,5 +6,5 @@
     "skipLibCheck": true, "verbatimModuleSyntax": true,
     "types": []
   },
-  "include": ["src/worker", "src/shared", "worker-configuration.d.ts"]
+  "include": ["backend/src", "shared", "worker-configuration.d.ts"]
 }

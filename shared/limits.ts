@@ -1,0 +1,4 @@
+export const GROUP_CREATION_LIMIT = 5;
+export const POLL_LIMIT_PER_GROUP = 50;
+export const EVENT_LIMIT_PER_GROUP = 300;
+export const ANSWER_INVITE_LIMIT_PER_POLL = 50;

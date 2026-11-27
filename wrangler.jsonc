@@ -1,10 +1,38 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "sorouyo",
-  "main": "src/worker/index.ts",
+  "main": "backend/src/index.ts",
   "compatibility_date": "2026-11-15",
   "assets": {
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
-  }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sorouyo",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "ANSWER_RESPONDENT_RATE_LIMIT",
+      "namespace_id": "5801001",
+      "simple": {
+        // 回答トークン×ゲスト識別子ごとの既定値: 1分10回
+        "limit": 10,
+        "period": 60
+      }
+    },
+    {
+      "name": "ANSWER_IP_RATE_LIMIT",
+      "namespace_id": "5801002",
+      "simple": {
+        // 送信元IPごとの既定値: 1分60回
+        "limit": 60,
+        "period": 60
+      }
+    }
+  ]
 }

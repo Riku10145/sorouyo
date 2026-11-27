@@ -1,0 +1,1 @@
+export const SAMPLE_SELECTED_DATE = '2026-11-21';
